@@ -1,0 +1,22 @@
+syntax = "proto3"; 
+
+// questo e' il file .proto in cui si definiscono le funzioni
+// che permettono la comunicazione tra i due microservizi. 
+// questo file contiene una sola funzione: 
+// La funzione permettera' al microservizio Data Manager di inviare
+// una richiesta gRPC al microservizio User Manager. 
+// La funzione ha come parametro la mail da controllare
+// e ha come risposta un booleano. 
+
+service CheckUserService{
+    rpc CheckUserExists (UserCheckRequest) returns (UserCheckResponse); 
+}
+
+message UserCheckRequest{
+    string email = 1; 
+}
+
+message UserCheckResponse{
+    int32 status = 1; //status code: 0 = success, 1 = error ; status = ...
+    string message = 2; 
+}
