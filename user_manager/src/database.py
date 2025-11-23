@@ -99,13 +99,30 @@ class UserDB:
         cursor = conn.cursor()
 
         try:
+            print("CONTROLLO SE L'UTENTE ESISTE")
+            query2 = "SELECT id FROM users WHERE email = %s"
+            cursor.execute(query2, (email,))
+            print("SONO QUI")
+            result = cursor.fetchone()
+            print(f"RESULT = {result}")
+            print(f"{result is not None}")
+
+            if result is None:
+                return False
+
             query = "DELETE FROM users WHERE email = (%s)"
             cursor.execute(query, (email,))
             conn.commit()
             print("UTENTE CORRETTAMENTE ELIMINATO DALLA TABELLA")
             return True
-        except mysql.connector.IntegrityError:
-            return False
+        
+        # NEL CASO IN CUI NEL DB C'E' SOLO UNA TABELLA, LA DELETE NON
+        # TORNERA' MAI UNA ECCEZIONE DI TIPO INTEGRITY ERROR : 
+        # LA DELETE DI UN RECORD CHE NON ESISTE NON DA ERRORE.
+        #INTEGRITY ERROR VIENE SOLLEVATA DALLA DELETE NEL CASO IN CUI ESISTONO
+        #DIPENDENZE DATI IN PIU' TABELLE.
+        #except mysql.connector.IntegrityError: 
+        #   return False
         
         except Exception as e:
             print(f"Errore sconosciuto SQL: {e}")

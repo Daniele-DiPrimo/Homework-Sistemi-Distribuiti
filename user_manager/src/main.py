@@ -66,10 +66,12 @@ def delete_user():
     print(f"TENTATIVO DI DELETE SU {email}")
     success = db.delete_user(email)
 
+    print(f"main success: {success}")
+
     if success: 
         return jsonify({"message": "utente correttamente eliminato dall'archivio"})
     else:
-        return jsonify({"message": "la mail non è presente nell'archivio"})
+        return jsonify({"message": "la mail non è presente nell'archivio"}), 409
 
 
 if __name__ == '__main__':

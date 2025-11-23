@@ -10,7 +10,35 @@ services:
       MYSQL_PASSWORD: 12345
     ports:
       - "3306:3306" 
+    networks:
+      - my-network
     volumes: 
       - mariadb_data:/var/lib/mysql
+
+
+# --- USER MANAGER (Immagine costruita da noi) ---
+  user-manager:
+    build: ./user_manager  # Cerca il Dockerfile qui dentro
+    container_name: user-manager
+    restart: always
+    ports:
+      - "5000:5000"   # Espone Flask (REST)
+      - "50051:50051" # Espone gRPC
+    environment:
+      # CONFIGURAZIONE FONDAMENTALE:
+      # Qui diciamo a Python di non cercare il DB su localhost, 
+      # ma all'indirizzo interno di Docker chiamato 'user-db'
+      DB_HOST: user-db
+      DB_USER: user_service
+      DB_PASSWORD: 12345
+      DB_NAME: user_db
+    depends_on:
+      - user-db  # Aspetta che il DB parta
+    networks:
+      - my-network
+
 volumes:
   mariadb_data:
+
+networks:
+  my-network:
