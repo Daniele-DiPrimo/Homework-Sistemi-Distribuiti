@@ -1,0 +1,41 @@
+services:
+
+  mariadb:
+    image: mariadb:12.0.2-ubi10
+    container_name: mariadb
+    ports:
+    - "${MARIADB_HOST_PORT}:${MARIADB_PORT}"
+    environment:
+      - MARIADB_DATABASE=${MARIADB_DATABASE}
+      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 2s
+    restart: on-failure
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  data_collector:
+    build: ./data_collector
+    container_name: data_collector
+    ports:
+      - "${DATA_COLLECTOR_HOST_PORT}:${DATA_COLLECTOR_PORT}"
+    environment:
+      - DATA_COLLECTOR_PORT=${DATA_COLLECTOR_PORT}
+      - MARIADB_PORT=${MARIADB_PORT}
+      - MARIADB_DATABASE=${MARIADB_DATABASE}
+      - MARIADB_USER=${MARIADB_USER}
+      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_HOST=${MARIADB_HOST}
+    depends_on:
+      mariadb: 
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  mariadb_data:
