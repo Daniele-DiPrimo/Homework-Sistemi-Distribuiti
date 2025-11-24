@@ -1,15 +1,15 @@
 services:
 
-  mariadb:
+  flights_db:
     image: mariadb:12.0.2-ubi10
-    container_name: mariadb
+    container_name: flights_db
     ports:
-    - "${MARIADB_HOST_PORT}:${MARIADB_PORT}"
+    - "${FLIGHTSDB_HOST_PORT}:${FLIGHTSDB_PORT}"
     environment:
-      - MARIADB_DATABASE=${MARIADB_DATABASE}
-      - MARIADB_USER=${MARIADB_USER}
-      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
-      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=${FLIGHTSDB_DATABASE}
+      - MARIADB_USER=${FLIGHTSDB_USER}
+      - MARIADB_PASSWORD=${FLIGHTSDB_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${FLIGHTSDB_ROOT_PASSWORD}
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 2s
@@ -27,13 +27,13 @@ services:
       - "${DATA_COLLECTOR_HOST_PORT}:${DATA_COLLECTOR_PORT}"
     environment:
       - DATA_COLLECTOR_PORT=${DATA_COLLECTOR_PORT}
-      - MARIADB_PORT=${MARIADB_PORT}
-      - MARIADB_DATABASE=${MARIADB_DATABASE}
-      - MARIADB_USER=${MARIADB_USER}
-      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
-      - MARIADB_HOST=${MARIADB_HOST}
+      - FLIGHTSDB_PORT=${FLIGHTSDB_PORT}
+      - FLIGHTSDB_DATABASE=${FLIGHTSDB_DATABASE}
+      - FLIGHTSDB_USER=${FLIGHTSDB_USER}
+      - FLIGHTSDB_PASSWORD=${FLIGHTSDB_PASSWORD}
+      - FLIGHTSDB_HOST=${FLIGHTSDB_HOST}
     depends_on:
-      mariadb: 
+      flights_db: 
         condition: service_healthy
     restart: on-failure
 

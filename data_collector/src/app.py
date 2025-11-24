@@ -2,16 +2,16 @@ import os
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from database import db
-from models import Flights
+import models
 
 app = Flask(__name__)
 
 
-db_user = os.getenv('MARIADB_USER')
-db_password = os.getenv('MARIADB_PASSWORD')
-db_host = os.getenv('MARIADB_HOST')
-db_port = os.getenv('MARIADB_PORT')
-db_name = os.getenv('MARIADB_DATABASE')
+db_user = os.getenv('FLIGHTSDB_USER')
+db_password = os.getenv('FLIGHTSDB_PASSWORD')
+db_host = os.getenv('FLIGHTSDB_HOST')
+db_port = os.getenv('FLIGHTSDB_PORT')
+db_name = os.getenv('FLIGHTSDB_DATABASE')
 
 SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
