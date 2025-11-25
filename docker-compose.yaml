@@ -18,12 +18,12 @@ services:
 
 # --- USER MANAGER (Immagine costruita da noi) ---
   user-manager:
-    build: ./user_manager  # Cerca il Dockerfile qui dentro
+    build: ./user_manager 
     container_name: user-manager
     restart: always
     ports:
       - "5000:5000"   # Espone Flask (REST)
-      - "50051:50051" # Espone gRPC
+      # - "50051:50051" Questa riga serve ad Esporre il server gRPC all'esterno. Il canale gRPC però è riservato alla comunicazione dei due container e quindi non va esposto all'esterno-
     environment:
       # CONFIGURAZIONE FONDAMENTALE:
       # Qui diciamo a Python di non cercare il DB su localhost, 

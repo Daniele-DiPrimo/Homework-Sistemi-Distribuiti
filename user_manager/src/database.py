@@ -45,8 +45,7 @@ class UserDB:
             PRIMARY KEY (id),
             UNIQUE (email)
         )
-        """
-        
+        """        
         try:
             cursor.execute(query)
             conn.commit()
@@ -58,6 +57,7 @@ class UserDB:
             conn.close()
             print("TABELLA USERS CORRETTAMENTE CREATA E PRONTA ALL'USO")
 
+    #ancora da migliorare
     def user_exist(self, email): 
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -83,7 +83,12 @@ class UserDB:
             conn.commit()
             print("UTENTE CORRETTAMENTE INSERITO NELLA TABELLA")
             return True
-        except mysql.connector.IntegrityError: #Eccezione che viene sollevata se l'email inserita è già presente
+        
+        #Eccezione che viene sollevata se l'email inserita è già presente
+        #Queste eccezioni mi permettono di implementare la politica AT-MOST-ONCE. Se il client manda la richiesta e il server la elabora ma si perde la risposta:
+        #Il server ha già cambiato il db e la email è di tipo UNIQUE, quindi anche se il client manda una seconda richiesta il server solleverà l'eccezione di 
+        #IntegrityError. Anche nel caso in cui c'è un errore critico improvviso siamo coperti: oltre all'eccezione integrityError c'è anche l'eccezione generica 'e'
+        except mysql.connector.IntegrityError: 
             return False
         
         except Exception as e:
@@ -99,12 +104,11 @@ class UserDB:
         cursor = conn.cursor()
 
         try:
-            print("CONTROLLO SE L'UTENTE ESISTE")
+
+            # Prima di fare la delete controllo se l'utente esiste. Il controllo è necessario perchè la delete su una email non esistente non da IntegrityError.
             query2 = "SELECT id FROM users WHERE email = %s"
             cursor.execute(query2, (email,))
-            print("SONO QUI")
             result = cursor.fetchone()
-            print(f"RESULT = {result}")
             print(f"{result is not None}")
 
             if result is None:
