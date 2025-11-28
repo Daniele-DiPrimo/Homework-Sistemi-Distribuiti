@@ -1,15 +1,53 @@
 services:
+
+  flights_db:
+    image: mariadb:12.0.2-ubi10
+    container_name: flights_db
+    ports:
+    - "${FLIGHTSDB_HOST_PORT}:${FLIGHTSDB_PORT}"
+    environment:
+      - MARIADB_DATABASE=${FLIGHTSDB_DATABASE}
+      - MARIADB_USER=${FLIGHTSDB_USER}
+      - MARIADB_PASSWORD=${FLIGHTSDB_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${FLIGHTSDB_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 10s
+    restart: on-failure
+    volumes:
+      - flightdb_data:/var/lib/mysql
+
+  data_collector:
+    build: ./data_collector
+    container_name: data_collector
+    ports:
+      - "${DATA_COLLECTOR_HOST_PORT}:${DATA_COLLECTOR_PORT}"
+    environment:
+      - DATA_COLLECTOR_PORT=${DATA_COLLECTOR_PORT}
+      - FLIGHTSDB_PORT=${FLIGHTSDB_PORT}
+      - FLIGHTSDB_DATABASE=${FLIGHTSDB_DATABASE}
+      - FLIGHTSDB_USER=${FLIGHTSDB_USER}
+      - FLIGHTSDB_PASSWORD=${FLIGHTSDB_PASSWORD}
+      - FLIGHTSDB_HOST=${FLIGHTSDB_HOST}
+    depends_on:
+      flights_db: 
+        condition: service_healthy
+    restart: on-failure
+
   user-db: 
     image: mariadb:latest
     container_name: user-db
     restart: always 
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: user_db
-      MYSQL_USER: user_service
-      MYSQL_PASSWORD: 12345
+      - PASSWORD_ROOT_DB=${PASSWORD_ROOT_DB}   #rootpassword
+      - NAME_DB=${NAME_DB}        #user_db
+      - USER_DB=${USER_DB}            #user_service
+      - PASSWORD_DB=${PASSWORD_DB}       #12345
     ports:
-      - "3306:3306" 
+      - "${USER_DB_HOST_PORT}:${USER_DB_PORT}"
     networks:
       - my-network
     volumes: 
@@ -18,26 +56,39 @@ services:
 
 # --- USER MANAGER (Immagine costruita da noi) ---
   user-manager:
-    build: ./user_manager 
+    build: ./user_manager  # Cerca il Dockerfile qui dentro
     container_name: user-manager
     restart: always
     ports:
-      - "5000:5000"   # Espone Flask (REST)
-      # - "50051:50051" Questa riga serve ad Esporre il server gRPC all'esterno. Il canale gRPC però è riservato alla comunicazione dei due container e quindi non va esposto all'esterno-
+      - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"  # Espone Flask (REST)
+      # - "50051:50051"  Espone gRPC
     environment:
       # CONFIGURAZIONE FONDAMENTALE:
       # Qui diciamo a Python di non cercare il DB su localhost, 
       # ma all'indirizzo interno di Docker chiamato 'user-db'
-      DB_HOST: user-db
-      DB_USER: user_service
-      DB_PASSWORD: 12345
-      DB_NAME: user_db
+      - PYTHONUNBUFFERED= 1
+      - HOST_DB=${HOST_DB} #user-db
+      - USER_DB=${USER_DB} #user_service
+      - PASSWORD_DB=${PASSWORD_DB} #12345
+      - NAME_DB=${NAME_DB} #user_db
+      - REDIST_HOST=${REDIS_HOST}
     depends_on:
       - user-db  # Aspetta che il DB parta
+      - redis-cache
     networks:
       - my-network
+  
+  redis-cache: 
+    image: redis:alpine
+    container_name: redis-cache
+    restart: always
+    networks:
+      - my-network
+    ports:
+      - "${REDIS_HOST_PORT}:${REDIS_PORT}"
 
 volumes:
+  flightdb_data:
   mariadb_data:
 
 networks:

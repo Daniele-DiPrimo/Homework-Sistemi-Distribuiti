@@ -1,138 +1,136 @@
-import mysql.connector
-import time
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.exc import IntegrityError, OperationalError
 import os
+import time
 
-class UserDB: 
+# ==========================================
+# 1. DEFINIZIONE DEL MODELLO (ORM)
+# ==========================================
+# Invece di scrivere "CREATE TABLE", definiamo una classe Python.
+# SQLAlchemy tradurrà questa classe in SQL automaticamente.
+Base = declarative_base()
 
-    def __init__(self): #attraverso la funzione __init__ creiamo la tabella all'avvio se non esiste. 
-        #leggiamo tutta la configurazione delle variabili d'ambiente e salviamo i campi in variabili. In questo modo avremo un'istanza del nostro DB
-        self.host = os.getenv('DB_HOST', 'localhost')
-        self.user = os.getenv('DB_USER', 'user_service')
-        self.password = os.getenv('DB_PASSWORD', '12345')
-        self.database = os.getenv('DB_NAME', 'user_db')
+class User(Base):
+    __tablename__ = 'users'
+
+    # Mappiamo le colonne della tabella
+    # id = Column(Integer, autoincrement=True)
+    email = Column(String(255), primary_key=True, nullable=False)
+    nome = Column(String(100), nullable=False)
+    cognome = Column(String(150), nullable=False)
+
+    # password = Column(String(255), nullable=False)
+
+# ==========================================
+# 2. CLASSE GESTIONE DATABASE
+# ==========================================
+class UserDB:
+    def __init__(self):
+        # Leggiamo la configurazione dalle variabili d'ambiente
+        self.host = os.getenv('HOST_DB')
+        self.user = os.getenv('USER_DB')
+        self.password = os.getenv('PASSWORD_DB')
+        self.database = os.getenv('NAME_DB')
+        self.port = 3306 
+
+        # Creiamo l'URL di connessione per SQLAlchemy (usando il driver pymysql)
+        self.db_url = f"mysql+pymysql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
         
-        self.__init__db()
-
-    
-    def _get_connection(self): #in questa funzione faremo la connessione al database,
+        # Avviamo l'engine con il retry logic iniziale
+        self.engine = self._wait_for_db_connection()
         
-        retries = 5 # numero di retries nel caso in cui non riusciamo a collegarci al db
+        # Creiamo la tabella se non esiste (Equivale al tuo __init__db con CREATE TABLE IF NOT EXISTS)
+        Base.metadata.create_all(self.engine)
+        print("✅ Tabella 'users' pronta (o già esistente).")
 
-        while retries > 0: 
-            try: 
-                conn = mysql.connector.connect(
-                    host = self.host,
-                    user = self.user ,
-                    password = self.password,
-                    database = self.database 
-                )
-                print("CONNESSIONE AL DB EFFETTUATA")
-                return conn
-            except mysql.connector.Error as error: 
-                print(f"CONNESSIONE FALLITA. ERRORE: {error}. VADO CON IL RETRY")
-                time.sleep(2)        
+        # Creiamo la fabbrica di sessioni
+        self.Session = sessionmaker(bind=self.engine)
+        print("✅ DB avviato e pronto all'uso.")
+
+    def _wait_for_db_connection(self):
+        """Gestisce i retry di connessione all'avvio"""
+        retries = 10
+        while retries > 0:
+            try:
+                # pool_pre_ping=True controlla se la connessione è viva prima di usarla
+                engine = create_engine(self.db_url, pool_recycle=3600, pool_pre_ping=True)
+                # Testiamo la connessione
+                with engine.connect() as connection:
+                    pass
+                print("✅ CONNESSIONE AL DB EFFETTUATA")
+                return engine
+            except OperationalError as e:
+                print(f"⚠️ CONNESSIONE FALLITA: {e}. VADO CON IL RETRY ({retries} rimasti)")
+                time.sleep(2)
                 retries -= 1
+        
+        raise Exception("❌ RETRY TERMINATE, IMPOSSIBILE CONNETTERSI AL DATABASE")
 
-        raise Exception("RETRY TERMINATE, IMPOSSIBILE CONNETTERSI AL DATABASE")   #se dopo le 5 retry non ci si riesce a connettere solleviamo un eccezione con raise
-
-    def __init__db(self): #in questa funzione creo la tabella se non esiste
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        query = """
-        CREATE TABLE IF NOT EXISTS users (
-            id INT AUTO_INCREMENT,
-            email VARCHAR(255) NOT NULL,
-            PRIMARY KEY (id),
-            UNIQUE (email)
-        )
-        """        
+    def user_exist(self, email):
+        session = self.Session()
         try:
-            cursor.execute(query)
-            conn.commit()
-            print("✅ Tabella 'users' pronta.")
-        except mysql.connector.Error as err:
-            print(f"❌ Errore nella creazione tabella: {err}")
+            # SELECT ? FROM users WHERE email = ...
+            user = session.query(User).filter_by(email=email).first()
+            return user is not None
         finally:
-            cursor.close()
-            conn.close()
-            print("TABELLA USERS CORRETTAMENTE CREATA E PRONTA ALL'USO")
+            session.close()
 
-    #ancora da migliorare
-    def user_exist(self, email): 
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        
-        query = "SELECT id FROM users WHERE email = %s"
-        cursor.execute(query, (email,))
-        result = cursor.fetchone()
-
-        cursor.close()
-        conn.close()
-
-        return result is not None
-    
-    def add_user(self,email):
-        conn = self._get_connection()
-        cursor = conn.cursor()
+    def add_user(self, email, nome, cognome):
+        session = self.Session()
         try:
-            query = "INSERT INTO users (email) VALUES (%s)"
+            # Creiamo l'oggetto Utente
+            new_user = User(email=email, nome=nome, cognome=cognome)
             
-            cursor.execute(query, (email,))
-            print("ARRIVO QUI POI FINISCE")
-            
-            conn.commit()
-            print("UTENTE CORRETTAMENTE INSERITO NELLA TABELLA")
+            # INSERT INTO users ...
+            session.add(new_user)            
+            session.commit()
+            print("✅ UTENTE CORRETTAMENTE INSERITO NELLA TABELLA")
             return True
-        
-        #Eccezione che viene sollevata se l'email inserita è già presente
-        #Queste eccezioni mi permettono di implementare la politica AT-MOST-ONCE. Se il client manda la richiesta e il server la elabora ma si perde la risposta:
-        #Il server ha già cambiato il db e la email è di tipo UNIQUE, quindi anche se il client manda una seconda richiesta il server solleverà l'eccezione di 
-        #IntegrityError. Anche nel caso in cui c'è un errore critico improvviso siamo coperti: oltre all'eccezione integrityError c'è anche l'eccezione generica 'e'
-        except mysql.connector.IntegrityError: 
+            
+        except IntegrityError:
+            session.rollback() # Annulla la transazione
+            # QUI IMPLEMENTIAMO LA POLITICA AT-MOST-ONCE:
+            # Se l'email esiste già (IntegrityError), ritorniamo False.
+            # Il sistema è idempotente: due richieste uguali non creano danni.
+            print("⚠️ Utente duplicato (IntegrityError)")
             return False
-        
+            
         except Exception as e:
-            print(f"Errore sconosciuto SQL: {e}")
+            session.rollback()
+            # Gestione eccezione generica
+            print(f"❌ Errore sconosciuto SQL: {e}")
+            # Come discusso, qui sarebbe meglio fare 'raise e', 
+            # ma mantengo 'return False' come nel tuo codice originale.
             return False
+            
+        finally:
+            session.close()
 
-        finally: 
-            cursor.close()
-            conn.close()
-        
-    def delete_user(self, email): 
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
+    def delete_user(self, email):
+        session = self.Session()
         try:
-
-            # Prima di fare la delete controllo se l'utente esiste. Il controllo è necessario perchè la delete su una email non esistente non da IntegrityError.
-            query2 = "SELECT id FROM users WHERE email = %s"
-            cursor.execute(query2, (email,))
-            result = cursor.fetchone()
-            print(f"{result is not None}")
-
-            if result is None:
+            # In SQLAlchemy non serve fare prima la SELECT e poi la DELETE.
+            # Possiamo provare a cancellare direttamente e vedere quante righe sono state toccate.
+            
+            print("CONTROLLO ED ELIMINAZIONE UTENTE...")
+            
+            # DELETE FROM users WHERE email = ...
+            rows_deleted = session.query(User).filter_by(email=email).delete()
+            session.commit()
+            
+            if rows_deleted > 0:
+                print("✅ UTENTE CORRETTAMENTE ELIMINATO DALLA TABELLA")
+                return True
+            else:
+                # Se rows_deleted è 0, significa che l'utente non esisteva (result is None)
+                print(f"⚠️ Nessun utente trovato per email: {email}")
                 return False
 
-            query = "DELETE FROM users WHERE email = (%s)"
-            cursor.execute(query, (email,))
-            conn.commit()
-            print("UTENTE CORRETTAMENTE ELIMINATO DALLA TABELLA")
-            return True
-        
-        # NEL CASO IN CUI NEL DB C'E' SOLO UNA TABELLA, LA DELETE NON
-        # TORNERA' MAI UNA ECCEZIONE DI TIPO INTEGRITY ERROR : 
-        # LA DELETE DI UN RECORD CHE NON ESISTE NON DA ERRORE.
-        #INTEGRITY ERROR VIENE SOLLEVATA DALLA DELETE NEL CASO IN CUI ESISTONO
-        #DIPENDENZE DATI IN PIU' TABELLE.
-        #except mysql.connector.IntegrityError: 
-        #   return False
-        
         except Exception as e:
-            print(f"Errore sconosciuto SQL: {e}")
+            session.rollback()
+            print(f"❌ Errore sconosciuto SQL: {e}")
             return False
-
+            
         finally:
-            cursor.close()
-            conn.close()
-    
+            session.close()

@@ -3,7 +3,11 @@ import grpc
 from concurrent import futures 
 import sys #serve per importare i file pb2 dalla cartella grpc_generated
 import os
-import threading
+import threading 
+import json 
+import redis
+
+
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 
@@ -14,6 +18,18 @@ from database import UserDB
 
 app = Flask(__name__)
 db = UserDB() 
+
+redis_client = redis.Redis(   #redis_client è un oggetto py che funge da clinet/driver per il controllo di redis container. Redis container è un Remote Dictionary Server. 
+    
+    host=os.getenv('REDIS_HOST', 'redis-cache'), # Default al nome del container
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    
+    #non mi funziona se li prendo da .env
+    #host = os.getenv('REDIS_HOST'),   # --> nel file .env va il nome del container che metto nel docker-compose.
+    #port = os.getenv('REDIS_PORT'), # --> porta di redis. Messa nel file .env 
+    db = 0,
+    decode_responses = True    # converte tutti i dati all'interno della cache redis in stringhe 
+)
 
 class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer): 
     def CheckUserExsist(self, request, context): 
@@ -43,23 +59,84 @@ def run_grpc_server():
 
 @app.route('/register', methods = ['POST'])
 def register_user(): 
+    # prima della logica di business, lavoro sulla redis's cache --> controlla sulla richiesta.
+    # Controllo sulla cache di redis, associo ad ogni richiesta un request_id. Il request_id sarà generato ... LOGICA REDIS
+
+    request_id = request.headers.get('X-Request-ID')  # E' pratica comune mettere il prefisso X- per header che non fanno parte dello standard ufficiale X-Request-ID --> il client genererà un ID Request
+    # casuale che identificherà una richiesta specifica di quel client.
+
+    if not request_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
+        return jsonify({"error": "X-REQUEST-ID mancante nell'header della richiesta HTTP."}), 400   
+
+    cached_data = redis_client.get(request_id) # controllo se esiste una corrispondenza nella cache di redis
+
+    if cached_data: #esiste una corrispondenza nella cache --> l'utente ha già inviato la richiesta
+        print(f"Risposta presente nella cache. Cache Data: {cached_data}, Request ID {request_id}")
+        response_json = json.loads(cached_data)  #per ritornare la richiesta in formato json convertiamo i dati presenti nella cache ( avevamo impostato essere stringhe ) in json, poi ritorniamo.
+        return jsonify(response_json['body']), response_json['status_code']
+    
+    # non esiste una corrispondenza, la richiesta è inviata per la prima volta, quindi passo alla logica di business
+    #LOGICA DI BUSINESS
     data = request.get_json()
 
     if not data or 'email' not in data: 
         return jsonify({"errore" : "EMAIL NON INSERITA"}), 400
     
     email = data['email']
-    print(f"TENTATIVO DI REGISTRAZIONE PER {email}")
+    nome = data['nome']
+    cognome = data['cognome']
+    print(f"TENTATIVO DI REGISTRAZIONE PER {email} --> {nome} {cognome}")
 
-    success = db.add_user(email)
+    success = db.add_user(email, nome, cognome)
 
+    # se l'utente è stato correttamente inserito nel db, creo un dizionario py --> successo.
     if success: 
-        return jsonify({"message": "Utente registrato con successo", "email_request: ": email, "status" : True}), 201
-    else: 
-        return jsonify({"message": "email già presente nel sistema","email_request: " : email , "status" : False}), 409
+        
+        response_body = {              
+            "message": "Utente registrato con successo",
+            "email_request": email,  
+            "status": True            
+        }
+        status_code = 201
+
+    else: # creo un dizionario py --> fallimento.
+        response_body = {              
+            "message": "Utente già registrato, email presente in archivio.",
+            "email_request": email,  
+            "status": False            
+        }
+        status_code = 409
+
+    cache_packet = {  # creo il pacchetto da inserire all'interno della cache.
+        "body": response_body,
+        "status_code": status_code
+    }
+    redis_client.setex(request_id, 3600, json.dumps(cache_packet))  #3600 --> la cache di redis terrà i dati per 1 ora. json.dumps(cache_packet) permette di salvare i dati in cache in formato stringa.
+
+    return jsonify(response_body), status_code # converto il dizionario py in json e lo ritorno.
+
 
 @app.route('/deleteUser', methods = ['POST'])
-def delete_user(): 
+def delete_user():
+
+    #applico l'AT-MOST-ONCE anche in delete_user() --> l'idea è quella di conservare i dati nella cache per meno tempo rispetto alla registrazione --> L'Idempotenza in register è più restrittiva, se arriva
+    #una richiesta duplicata l'accesso al db è critico. Per la delete, invece, è meno critico. Quindi, se avviene una richiesta duplicata ( magari si è perso il messaggio di ritorno e l'utente non sa se l'operazione è andata a buon fine)
+    #ritorno lo stato salvato nella cache. Dopo qualche minuto cancello i dati nella cache e se arriva un duplicato torno il jsonify con body "email non presente in archivio". 
+
+
+    request_id = request.headers.get('X-Request-ID')
+
+    if not request_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
+        return jsonify({"error": "X-REQUEST-ID mancante nell'header della richiesta HTTP."}), 400 
+
+    cached_data = redis_client.get(request_id)
+
+    if cached_data: #esiste una corrispondenza nella cache --> l'utente ha già inviato la richiesta
+        print(f"Risposta presente nella cache. Cache Data: {cached_data}, Request ID {request_id}")
+        response_json = json.loads(cached_data)  #per ritornare la richiesta in formato json convertiamo i dati presenti nella cache ( avevamo impostato essere stringhe ) in json, poi ritorniamo.
+        return jsonify(response_json['body']), response_json['status_code']
+    
+    #LOGICA DI BUSINESS
     data = request.get_json()
 
     if not data or 'email' not in data: 
@@ -69,9 +146,30 @@ def delete_user():
     success = db.delete_user(email)
 
     if success: 
-        return jsonify({"message": "utente correttamente eliminato dall'archivio", "email_request: ": email, "status:" : True}), 201
+        response_body = {              
+            "message": "utente correttamente eliminato dall'archivio",
+            "email_request": email,  
+            "status": True            
+        }
+        status_code = 200
+
     else:
-        return jsonify({"message": "email non presente in archivio", "email_request: ": email, "status: ": False}), 409
+        response_body = {              
+            "message": "utente non presente in archivio",
+            "email_request": email,  
+            "status": True            
+        }
+        status_code = 404
+    
+    cache_packet = {
+        "body": response_body,
+        "status_code": status_code
+    }
+
+    redis_client.setex(request_id, 180, json.dumps(cache_packet))
+
+    return jsonify(response_body), status_code
+
 
 
 if __name__ == '__main__':
