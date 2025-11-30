@@ -46,12 +46,12 @@ services:
     container_name: user-db
     restart: always 
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: user_db
-      MYSQL_USER: user_service
-      MYSQL_PASSWORD: 12345
+      - PASSWORD_ROOT_DB=${PASSWORD_ROOT_DB}   #rootpassword
+      - NAME_DB=${NAME_DB}        #user_db
+      - USER_DB=${USER_DB}            #user_service
+      - PASSWORD_DB=${PASSWORD_DB}       #12345
     ports:
-      - "3306:3306" 
+      - "${USER_DB_HOST_PORT}:${USER_DB_PORT}"
     networks:
       - my-network
     volumes: 
@@ -64,20 +64,32 @@ services:
     container_name: user-manager
     restart: always
     ports:
-      - "5000:5000"   # Espone Flask (REST)
-      - "50051:50051" # Espone gRPC
+      - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"  # Espone Flask (REST)
+      # - "50051:50051"  Espone gRPC
     environment:
       # CONFIGURAZIONE FONDAMENTALE:
       # Qui diciamo a Python di non cercare il DB su localhost, 
       # ma all'indirizzo interno di Docker chiamato 'user-db'
-      DB_HOST: user-db
-      DB_USER: user_service
-      DB_PASSWORD: 12345
-      DB_NAME: user_db
+      - PYTHONUNBUFFERED= 1
+      - HOST_DB=${HOST_DB} #user-db
+      - USER_DB=${USER_DB} #user_service
+      - PASSWORD_DB=${PASSWORD_DB} #12345
+      - NAME_DB=${NAME_DB} #user_db
+      - REDIST_HOST=${REDIS_HOST}
     depends_on:
       - user-db  # Aspetta che il DB parta
+      - redis-cache
     networks:
       - my-network
+  
+  redis-cache: 
+    image: redis:alpine
+    container_name: redis-cache
+    restart: always
+    networks:
+      - my-network
+    ports:
+      - "${REDIS_HOST_PORT}:${REDIS_PORT}"
 
 volumes:
   flightdb_data:

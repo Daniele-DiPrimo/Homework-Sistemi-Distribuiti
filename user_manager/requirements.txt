@@ -1,4 +1,6 @@
 grpcio
 grpcio-tools
 flask
-mysql-connector-python
+sqlalchemy
+pymysql
+redis
