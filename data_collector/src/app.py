@@ -1,8 +1,8 @@
 import os
 from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from database import db
-import models
+from extensions import db, scheduler
+from models import AirportsOfInterest
+import tasks
 
 app = Flask(__name__)
 
@@ -21,12 +21,21 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+scheduler.init_app(app)
+scheduler.start()
+
 
 @app.route('/airport-of-interest/add', methods=['POST'])
 def add_airports_of_interest():
     data = request.get_json()
+    email = data.get('email')
     airports = tuple(data.get('airports'))
-    return jsonify({"message": f"Airports added", "status": "success"})
+
+    for airport in airports:
+        db.session.add(AirportsOfInterest(email=email, icao=airport))
+
+    db.session.commit()
+    return jsonify({"message": "Airports added"}), 201
 
 
 if __name__ == '__main__':

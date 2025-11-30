@@ -15,7 +15,7 @@ services:
       interval: 2s
       timeout: 2s
       retries: 5
-      start_period: 2s
+      start_period: 10s
     restart: on-failure
     volumes:
       - flightdb_data:/var/lib/mysql
@@ -26,12 +26,16 @@ services:
     ports:
       - "${DATA_COLLECTOR_HOST_PORT}:${DATA_COLLECTOR_PORT}"
     environment:
+      - PYTHONUNBUFFERED=1
       - DATA_COLLECTOR_PORT=${DATA_COLLECTOR_PORT}
       - FLIGHTSDB_PORT=${FLIGHTSDB_PORT}
       - FLIGHTSDB_DATABASE=${FLIGHTSDB_DATABASE}
       - FLIGHTSDB_USER=${FLIGHTSDB_USER}
       - FLIGHTSDB_PASSWORD=${FLIGHTSDB_PASSWORD}
       - FLIGHTSDB_HOST=${FLIGHTSDB_HOST}
+      - SECRETS_PATH=${SECRETS_PATH}
+    secrets:
+      - opensky_secrets
     depends_on:
       flights_db: 
         condition: service_healthy
@@ -81,3 +85,7 @@ volumes:
 
 networks:
   my-network:
+
+secrets:
+  opensky_secrets:
+    file: "./data_collector/credentials.json"
