@@ -32,7 +32,7 @@ redis_client = redis.Redis(   #redis_client è un oggetto py che funge da clinet
 )
 
 class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer): 
-    def CheckUserExsist(self, request, context): 
+    def CheckUserExist(self, request, context): 
         email = request.email
         print(f"Controllo se esiste {email} nel DB")
 

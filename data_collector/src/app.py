@@ -37,6 +37,18 @@ def add_airports_of_interest():
     db.session.commit()
     return jsonify({"message": "Airports added"}), 201
 
+@app.route('/airport-of-interest/average', methods=['POST'])
+def average():
+    data = request.get_json()
+
+
+#Calcolo della Media degli ultimi X giorni: 
+# Fornisce una funzione per calcolare e restituire la media degli ultimi 
+# X giorni sul numero di voli in partenza e/o in arrivo da un dato 
+# aeroporto: il DataCollector restituisce la media di quanti voli in 
+# partenza e/o quanti in arrivo ci sono stati negli ultimi X giorni da un 
+# dato aeroporto. 
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('DATA_COLLECTOR_PORT', 5000))
