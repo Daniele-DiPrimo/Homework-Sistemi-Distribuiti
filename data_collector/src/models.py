@@ -20,6 +20,17 @@ class Flights(db.Model):
             name='unique_flight'),
     )
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "icao24": self.icao24,
+            "firstSeen": self.firstSeen,
+            "estDepartureAirport": self.estDepartureAirport,
+            "lastSeen": self.lastSeen,
+            "estArrivalAirport": self.estArrivalAirport,
+            "callsign": self.callsign
+        }
+
 class AirportsOfInterest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(50), nullable=False)

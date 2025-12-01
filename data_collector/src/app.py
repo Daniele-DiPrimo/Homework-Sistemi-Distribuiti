@@ -1,8 +1,9 @@
 import os
 from flask import Flask, request, jsonify
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+import requests
 from extensions import db, scheduler
-from models import AirportsOfInterest
+from models import AirportsOfInterest, Flights
 import tasks
 import grpc
 import sys
@@ -111,6 +112,35 @@ def add_airports_of_interest():
         return jsonify({
             "error": "Database error", 
             "details": str(e)
+        }), 500
+
+@app.route('/get-flights/latest', methods=['GET'])  
+def get_latest_flight():
+    airport = request.args.get('airport')
+
+    if not airport:
+        return jsonify({"message": "Parameter 'airport' missing"}), 400
+    
+    try:  
+        stmt = db.select(Flights)\
+        .where(Flights.estDepartureAirport == airport)\
+        .order_by(Flights.firstSeen.desc())\
+        .limit(1)
+        last_departure = db.session.execute(stmt).scalars().first()
+
+        stmt = db.select(Flights)\
+        .where(Flights.estArrivalAirport == airport)\
+        .order_by(Flights.lastSeen.desc())\
+        .limit(1)
+        last_arrival = db.session.execute(stmt).scalars().first()
+
+        return jsonify({
+            "last_departure": last_departure.to_dict(),
+            "last_arrival": last_arrival.to_dict()
+        }), 200
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": "Error during api call"
         }), 500
 
 
