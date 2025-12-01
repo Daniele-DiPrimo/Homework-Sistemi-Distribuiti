@@ -1,12 +1,14 @@
 import os
 from flask import Flask, request, jsonify
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import func
 import requests
 from extensions import db, scheduler
 from models import AirportsOfInterest, Flights
 import tasks
 import grpc
 import sys
+from datetime import datetime, timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
@@ -141,6 +143,51 @@ def get_latest_flight():
     except requests.exceptions.RequestException as e:
         return jsonify({
             "error": "Error during api call"
+        }), 500
+
+@app.route('/airport-of-interest/average', methods=['GET'])
+def average():
+    airport = request.args.get('airport')
+    numberOfDays = request.args.get('numberOfDays')
+
+    if not airport or not numberOfDays:
+        return jsonify({"errore" : " Dati Mancanti. Inserisci l'aeroporto e il numero di giorni"})
+
+    
+    try: 
+        #limit_date è la data dopo il quale dobbiamo cercare i voli. E' uguale alla data di oggi - i giorni scelti dall'utente.
+        # il .raplace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
+        limit_date = (datetime.now() - timedelta(days=numberOfDays)).replace(hour=0, minute=0, second=0, microsecond=0)
+        print(f"limit_date {limit_date}")
+
+        #func è una libreria di sqlAlchemy che ha la funzione count --> la query ritorna il numero di voli 
+        # in departures_count ci sarà il numero di flight.id filtrati per data e estArrivalAirport
+        departures_count = db.session.query(func.count(Flights.id)).filter(
+            Flights.estDepartureAirport == airport,
+            Flights.firstSeen >= limit_date
+        ).scalar()
+
+        arrivals_count = db.session.query(func.count(Flights.id)).filter(
+            Flights.estArrivalAirport == airport,
+            Flights.lastSeen >= limit_date
+        ).scalar()
+
+        average_departures = departures_count / numberOfDays
+        average_arrivals = arrivals_count / numberOfDays
+
+        return jsonify({
+            "aeroporto_selezionato": airport,
+            "numero_di_giorni_analizzati": numberOfDays,
+            "numero_partenze": departures_count,
+            "numero_di_arrivi": arrivals_count,
+            "media_giornaliera_voli_in_partenza": round(average_departures, 2),
+            "media_giornaliera_voli_in_arrivo": round(average_arrivals, 2)
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "error": "SQL error",
+            "details": str(e)
         }), 500
 
 
