@@ -10,12 +10,21 @@ class Flights(db.Model):
     estArrivalAirport = db.Column(db.String(4), nullable=False)
     callsign = db.Column(db.CHAR(8), nullable=False)
 
+    __table_args__ = (
+        db.UniqueConstraint('icao24',
+            'firstSeen',
+            'estDepartureAirport',
+            'lastSeen',
+            'estArrivalAirport',
+            'callsign',
+            name='unique_flight'),
+    )
+
 class AirportsOfInterest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(50), nullable=False)
     icao = db.Column(db.CHAR(4), nullable=False)
 
-    # uniqueness constraint
     __table_args__ = (
         db.UniqueConstraint('email', 'icao', name='unique_email_icao'),
     )

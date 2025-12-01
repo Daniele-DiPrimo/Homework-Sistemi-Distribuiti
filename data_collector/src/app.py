@@ -1,12 +1,18 @@
 import os
 from flask import Flask, request, jsonify
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from extensions import db, scheduler
 from models import AirportsOfInterest
 import tasks
+import grpc
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
+import user_service_pb2, user_service_pb2_grpc
 
 app = Flask(__name__)
 
-
+#setup database
 db_user = os.getenv('FLIGHTSDB_USER')
 db_password = os.getenv('FLIGHTSDB_PASSWORD')
 db_host = os.getenv('FLIGHTSDB_HOST')
@@ -21,21 +27,91 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+
+#setup scheduler
 scheduler.init_app(app)
 scheduler.start()
 
 
+#setup grpc channel
+service_config = """{
+    "methodConfig": [{
+        "name": [{"service": "CheckUserService"}],
+        "retryPolicy": {
+            "maxAttempts": 3,
+            "initialBackoff": "0.5s",
+            "maxBackoff": "3s",
+            "backoffMultiplier": 2,
+            "retryableStatusCodes": ["UNAVAILABLE"]
+        },
+        "timeout": "5s"
+    }]
+}"""
+
+options = [('grpc.service_config', service_config)]
+channel = grpc.insecure_channel('user-manager:50051', options=options)
+stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
+
+
+#middleware
+@app.before_request
+def email_check():
+    email = request.headers.get('X-User-Email')
+
+    if not email:
+        return jsonify({"error": "Header 'X-User-Email' missing"}), 400
+
+    try:
+        response = stub.CheckUserExists(
+            user_service_pb2.UserCheckRequest(email = email),
+            timeout=5
+        )
+
+        if response.status == 1:
+            return jsonify({
+                "error": "User not exists", 
+                "details": response.message
+            }), 401
+                
+    except grpc.RpcError as e:
+        print(f"ERROR: {e.code().name} - {e.details()}")
+
+        return jsonify({
+            "error": "Validation service non available",
+        }), 503
+
+
+#routes
 @app.route('/airport-of-interest/add', methods=['POST'])
 def add_airports_of_interest():
+    email = request.headers.get('X-User-Email')
     data = request.get_json()
-    email = data.get('email')
     airports = tuple(data.get('airports'))
 
-    for airport in airports:
-        db.session.add(AirportsOfInterest(email=email, icao=airport))
+    try:
+        for airport in airports:
+            db.session.add(AirportsOfInterest(email=email, icao=airport))
 
-    db.session.commit()
-    return jsonify({"message": "Airports added"}), 201
+        db.session.commit()
+
+        tasks.fetch_and_update_db(airports)
+        return jsonify({"message": "Airports added"}), 201
+    
+    except IntegrityError as e:
+        db.session.rollback()
+        
+        return jsonify({
+            "error": "Duplicate entry or constraint violation",
+            "details": "One or more airports are already present for this user."
+        }), 409
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        
+        return jsonify({
+            "error": "Database error", 
+            "details": str(e)
+        }), 500
 
 
 if __name__ == '__main__':
