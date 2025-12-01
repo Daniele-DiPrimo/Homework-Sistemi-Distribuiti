@@ -1,6 +1,6 @@
 grpcio
 grpcio-tools
 flask
-sqlalchemy
+flask-sqlalchemy
 pymysql
 redis

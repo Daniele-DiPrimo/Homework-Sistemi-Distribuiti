@@ -1,5 +1,4 @@
 from extensions import db
-from sqlalchemy.orm import validates
 
 class Flights(db.Model):
     id = db.Column(db.Integer, primary_key=True)

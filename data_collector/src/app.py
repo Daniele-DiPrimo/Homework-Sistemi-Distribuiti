@@ -78,7 +78,7 @@ def email_check():
         print(f"ERROR: {e.code().name} - {e.details()}")
 
         return jsonify({
-            "error": "Validation service non available",
+            "error": "Validation service not available",
         }), 503
 
 

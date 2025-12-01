@@ -6,18 +6,29 @@ import os
 import threading 
 import json 
 import redis
-
-
+from extensions import db
+from user import User
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
-
 import user_service_pb2
 import user_service_pb2_grpc
 
-from database import UserDB
-
 app = Flask(__name__)
-db = UserDB() 
+
+#setup database
+db_user = os.getenv('USER_DB')
+db_password = os.getenv('PASSWORD_DB')
+db_host = os.getenv('HOST_DB')
+db_port = os.getenv('USER_DB_PORT')
+db_name = os.getenv('NAME_DB')
+
+SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+
+with app.app_context():
+    db.create_all()
 
 redis_client = redis.Redis(   #redis_client è un oggetto py che funge da clinet/driver per il controllo di redis container. Redis container è un Remote Dictionary Server. 
     
@@ -36,7 +47,10 @@ class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer):
         email = request.email
         print(f"Controllo se esiste {email} nel DB")
 
-        esiste = db.user_exist(email) 
+        with app.app_context():    
+            esiste = User.user_exist(email) 
+
+        print("eseguito!!")
 
         if esiste:
             return user_service_pb2.UserCheckResponse(status = 0 , message = "UTENTE TROVATO")
@@ -87,7 +101,7 @@ def register_user():
     cognome = data['cognome']
     print(f"TENTATIVO DI REGISTRAZIONE PER {email} --> {nome} {cognome}")
 
-    success = db.add_user(email, nome, cognome)
+    success = User.add_user(email, nome, cognome)
 
     # se l'utente è stato correttamente inserito nel db, creo un dizionario py --> successo.
     if success: 
@@ -143,7 +157,7 @@ def delete_user():
         return jsonify({"errore" : "email non inserita. Perfavore inserisci email"})
 
     email = data['email']
-    success = db.delete_user(email)
+    success = User.delete_user(email)
 
     if success: 
         response_body = {              
