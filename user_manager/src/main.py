@@ -32,7 +32,7 @@ redis_client = redis.Redis(   #redis_client è un oggetto py che funge da clinet
 )
 
 class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer): 
-    def CheckUserExist(self, request, context): 
+    def CheckUserExists(self, request, context): 
         email = request.email
         print(f"Controllo se esiste {email} nel DB")
 
@@ -116,7 +116,7 @@ def register_user():
     return jsonify(response_body), status_code # converto il dizionario py in json e lo ritorno.
 
 
-@app.route('/deleteUser', methods = ['POST'])
+@app.route('/delete', methods = ['POST'])
 def delete_user():
 
     #applico l'AT-MOST-ONCE anche in delete_user() --> l'idea è quella di conservare i dati nella cache per meno tempo rispetto alla registrazione --> L'Idempotenza in register è più restrittiva, se arriva

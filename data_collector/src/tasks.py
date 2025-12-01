@@ -68,63 +68,72 @@ def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None
     }
 
     try:
-        response = requests.get(url, params=payload, headers=headers, timeout=10)
+        response = requests.get(url, params=payload, headers=headers, timeout=15)
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            print(f"Airport not supported or no data available for: {icao}")
+            return []
+    except requests.exceptions.ReadTimeout:
+        print(f"Timeout expired for: {icao}")
+        return []
     except requests.exceptions.RequestException as e:
         print(f"Error during api call: {e}")
         return []
 
+def fetch_and_update_db(airports_icao):
+    #retrieving token
+    token = get_opensky_token()
 
-@scheduler.task('interval', id='update_db', seconds=10)
+    if not token:
+        logger.error("Error retrieving token!")
+        return
+        
+    #retrieving info on flights for specified airports
+    result = []
+
+    for icao in airports_icao:
+        end = int(time.time())
+        begin = end - 86400
+        result += get_flights_by_airport(icao, begin, end, token, departure=True, arrival=True)
+
+    if not result:
+        logger.info("--- No results found. ---")
+        return
+
+    #cleaning and filtering results
+    clean_result = []
+
+    for r in result:
+        if r.get('estDepartureAirport') and r.get('estArrivalAirport'):
+            flight = {k: v for k, v in r.items() if k in Flights.__table__.columns.keys()}
+                
+            flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen']) 
+            flight['lastSeen'] = datetime.fromtimestamp(flight['lastSeen'])
+                    
+            clean_result.append(flight)
+
+    #save info in flights_db
+    stmt = insert(Flights).values(clean_result)
+    stmt = stmt.prefix_with('IGNORE')
+    db.session.execute(stmt)
+    db.session.commit()
+
+@scheduler.task('interval', id='update_db', hours=24)
 def update_database():
     with scheduler.app.app_context():
-        logger.info("--- Update database. ---")
+        logger.info("--- Updating database... ---")
         
         #read airports from flights_db
         stmt = db.select(AirportsOfInterest.icao)
-        result = db.session.execute(stmt) 
+        result = db.session.execute(stmt)
         airports_icao = result.scalars().all()
 
         if not airports_icao:
             logger.info("--- No airports found in DB. ---")
             return
         
-        #retrieving token
-        token = get_opensky_token()
-
-        if not token:
-            logger.error("Error retrieving token!")
-            return
-        
-        #retrieving info on flights for specified airports
-        result = []
-
-        for icao in airports_icao:
-            end = int(time.time())
-            begin = end - 86400
-            result += get_flights_by_airport(icao, begin, end, token, departure=True, arrival=True)
-
-        #logger.info(f"Received data:\n{json.dumps(result, indent=2)}")
-
-        if not result:
-            logger.error("--- No results found. ---")
-            return
-
-        #cleaning and filtering results
-        clean_result = []
-
-        for r in result:
-            if r.get('estDepartureAirport') and r.get('estArrivalAirport'):
-                flight = {k: v for k, v in r.items() if k in Flights.__table__.columns.keys()}
-                
-                flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen']) 
-                flight['lastSeen'] = datetime.fromtimestamp(flight['lastSeen'])
-                    
-                clean_result.append(flight)
-
-        #save info in flights_db 
-        db.session.execute(insert(Flights), clean_result)
-        db.session.commit()
+        fetch_and_update_db(airports_icao)
 
         logger.info("--- Update done. ---")

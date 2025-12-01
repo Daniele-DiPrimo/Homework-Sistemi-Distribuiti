@@ -12,10 +12,12 @@ services:
       - MARIADB_ROOT_PASSWORD=${FLIGHTSDB_ROOT_PASSWORD}
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 2s
-      timeout: 2s
+      interval: 3s
+      timeout: 3s
       retries: 5
-      start_period: 10s
+      start_period: 20s
+    networks:
+      - data-network
     restart: on-failure
     volumes:
       - flightdb_data:/var/lib/mysql
@@ -39,23 +41,26 @@ services:
     depends_on:
       flights_db: 
         condition: service_healthy
+    networks:
+      - data-network
+      - intra-network
     restart: on-failure
 
   user-db: 
-    image: mariadb:latest
+    image: mariadb:12.0.2-ubi10
     container_name: user-db
     restart: always 
     environment:
-      - PASSWORD_ROOT_DB=${PASSWORD_ROOT_DB}   #rootpassword
-      - NAME_DB=${NAME_DB}        #user_db
-      - USER_DB=${USER_DB}            #user_service
-      - PASSWORD_DB=${PASSWORD_DB}       #12345
+      - MARIADB_ROOT_PASSWORD=${PASSWORD_ROOT_DB}   #rootpassword
+      - MARIADB_DATABASE=${NAME_DB}        #user_db
+      - MARIADB_USER=${USER_DB}            #user_service
+      - MARIADB_PASSWORD=${PASSWORD_DB}       #12345
     ports:
       - "${USER_DB_HOST_PORT}:${USER_DB_PORT}"
     networks:
-      - my-network
+      - user-network
     volumes: 
-      - mariadb_data:/var/lib/mysql
+      - userdb_data:/var/lib/mysql
 
 
 # --- USER MANAGER (Immagine costruita da noi) ---
@@ -80,23 +85,26 @@ services:
       - user-db  # Aspetta che il DB parta
       - redis-cache
     networks:
-      - my-network
+      - user-network
+      - intra-network
   
   redis-cache: 
     image: redis:alpine
     container_name: redis-cache
     restart: always
     networks:
-      - my-network
+      - user-network
     ports:
       - "${REDIS_HOST_PORT}:${REDIS_PORT}"
 
 volumes:
   flightdb_data:
-  mariadb_data:
+  userdb_data:
 
 networks:
-  my-network:
+  user-network:
+  data-network:
+  intra-network:
 
 secrets:
   opensky_secrets:
