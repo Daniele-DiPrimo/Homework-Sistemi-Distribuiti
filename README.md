@@ -3,3 +3,5 @@
 È necessario inserire un file .env nella directory principale. Il suddetto file .env verrà inviato via email per semplicità di configurazione.
 
 È necessario inserire il file credentials.json, scaricabile durante la fase di registrazione/login alle api di OpenSky, nella directory data_collector.
+
+Una volta effettuate queste operazioni, basterà digitare da un terminale collegato a DockerDesktop il comando "Docker compose up --build -d" 
