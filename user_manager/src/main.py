@@ -74,14 +74,20 @@ def register_user():
 
     request_id = request.headers.get('X-Request-ID')  # E' pratica comune mettere il prefisso X- per header che non fanno parte dello standard ufficiale X-Request-ID --> il client genererà un ID Request
     # casuale che identificherà una richiesta specifica di quel client.
+    # aggiungo il clientID
+    client_id = request.headers.get('X-Client-ID')
 
-    if not request_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
-        return jsonify({"error": "X-REQUEST-ID mancante nell'header della richiesta HTTP."}), 400   
+    if not request_id or not client_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
+        return jsonify({"error": "X-REQUEST-ID/X-ClientID mancante nell'header della richiesta HTTP."}), 400   
 
-    cached_data = redis_client.get(request_id) # controllo se esiste una corrispondenza nella cache di redis
+    
+    #la chiave cache sarà formata dalla concatenazione di client_id - nome del servizio - request_id
+    cache_key = f"{client_id}:register:{request_id}"
+    
+    cached_data = redis_client.get(cache_key) # controllo se esiste una corrispondenza nella cache di redis
 
     if cached_data: #esiste una corrispondenza nella cache --> l'utente ha già inviato la richiesta
-        print(f"Risposta presente nella cache. Cache Data: {cached_data}, Request ID {request_id}")
+        print(f"Risposta presente nella cache. Cache Data: {cached_data}, cachekey{cache_key}")
         response_json = json.loads(cached_data)  #per ritornare la richiesta in formato json convertiamo i dati presenti nella cache ( avevamo impostato essere stringhe ) in json, poi ritorniamo.
         return jsonify(response_json['body']), response_json['status_code']
     
@@ -100,8 +106,7 @@ def register_user():
     success = User.add_user(email, nome, cognome)
 
     # se l'utente è stato correttamente inserito nel db, creo un dizionario py --> successo.
-    if success: 
-        
+    if success:        
         response_body = {              
             "message": "Utente registrato con successo",
             "email_request": email,  
@@ -119,9 +124,9 @@ def register_user():
 
     cache_packet = {  # creo il pacchetto da inserire all'interno della cache.
         "body": response_body,
-        "status_code": status_code
+        "status_code": status_code,
     }
-    redis_client.setex(request_id, 3600, json.dumps(cache_packet))  #3600 --> la cache di redis terrà i dati per 1 ora. json.dumps(cache_packet) permette di salvare i dati in cache in formato stringa.
+    redis_client.setex(cache_key, 3600, json.dumps(cache_packet))  #3600 --> la cache di redis terrà i dati per 1 ora. json.dumps(cache_packet) permette di salvare i dati in cache in formato stringa.
 
     return jsonify(response_body), status_code # converto il dizionario py in json e lo ritorno.
 
@@ -133,16 +138,17 @@ def delete_user():
     #una richiesta duplicata l'accesso al db è critico. Per la delete, invece, è meno critico. Quindi, se avviene una richiesta duplicata ( magari si è perso il messaggio di ritorno e l'utente non sa se l'operazione è andata a buon fine)
     #ritorno lo stato salvato nella cache. Dopo qualche minuto cancello i dati nella cache e se arriva un duplicato torno il jsonify con body "email non presente in archivio". 
 
-
     request_id = request.headers.get('X-Request-ID')
+    client_id = request.headers.get('X-Client-ID')
 
-    if not request_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
-        return jsonify({"error": "X-REQUEST-ID mancante nell'header della richiesta HTTP."}), 400 
+    if not request_id or not client_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
+        return jsonify({"error": "X-REQUEST-ID/X-Client-ID mancante nell'header della richiesta HTTP."}), 400 
 
-    cached_data = redis_client.get(request_id)
+    cache_key = f"{client_id}:delete:{request_id}"
+    cached_data = redis_client.get(cache_key)
 
     if cached_data: #esiste una corrispondenza nella cache --> l'utente ha già inviato la richiesta
-        print(f"Risposta presente nella cache. Cache Data: {cached_data}, Request ID {request_id}")
+        print(f"Risposta presente nella cache. Cache Data: {cached_data}, CacheKey {request_id}")
         response_json = json.loads(cached_data)  #per ritornare la richiesta in formato json convertiamo i dati presenti nella cache ( avevamo impostato essere stringhe ) in json, poi ritorniamo.
         return jsonify(response_json['body']), response_json['status_code']
     
@@ -176,7 +182,7 @@ def delete_user():
         "status_code": status_code
     }
 
-    redis_client.setex(request_id, 180, json.dumps(cache_packet))
+    redis_client.setex(cache_key, 180, json.dumps(cache_packet))
 
     return jsonify(response_body), status_code
 
