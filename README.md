@@ -1,4 +1,4 @@
-#Istruzioni per l'esecuzione del codice
+# Istruzioni per l'esecuzione del codice
 
 È necessario inserire un file .env nella directory principale. Il suddetto file .env verrà inviato via email per semplicità di configurazione.
 
