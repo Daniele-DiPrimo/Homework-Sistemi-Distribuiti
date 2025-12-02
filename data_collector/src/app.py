@@ -9,12 +9,9 @@ import tasks
 import grpc
 import sys
 from datetime import datetime, timedelta
-<<<<<<< HEAD
 import redis
 import json
-=======
 from sqlalchemy import func
->>>>>>> 5f3e9c6e7388d299cc88beda161479c7ea9ce459
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
