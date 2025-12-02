@@ -32,12 +32,8 @@ with app.app_context():
 
 redis_client = redis.Redis(   #redis_client è un oggetto py che funge da clinet/driver per il controllo di redis container. Redis container è un Remote Dictionary Server. 
     
-    host=os.getenv('REDIS_HOST', 'redis-cache'), # Default al nome del container
+    host=os.getenv('REDIS_HOST', 'user-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
-    
-    #non mi funziona se li prendo da .env
-    #host = os.getenv('REDIS_HOST'),   # --> nel file .env va il nome del container che metto nel docker-compose.
-    #port = os.getenv('REDIS_PORT'), # --> porta di redis. Messa nel file .env 
     db = 0,
     decode_responses = True    # converte tutti i dati all'interno della cache redis in stringhe 
 )

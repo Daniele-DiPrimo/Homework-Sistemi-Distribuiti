@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy import func
 import requests
@@ -9,6 +9,8 @@ import tasks
 import grpc
 import sys
 from datetime import datetime, timedelta
+import redis
+import json
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
@@ -30,6 +32,19 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+email_check_cache = redis.Redis(
+    host=os.getenv('REDIS_HOST', 'data-cache'),
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    db = 0,
+    decode_responses = True
+)
+
+requests_cache = redis.Redis(
+    host=os.getenv('REDIS_HOST', 'data-cache'),
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    db = 1,
+    decode_responses = True
+)
 
 #setup scheduler
 scheduler.init_app(app)
@@ -59,23 +74,57 @@ stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
 #middleware
 @app.before_request
 def email_check():
-    email = request.headers.get('X-User-Email')
+    g.client_id = request.headers.get('X-Client-ID')
+    g.request_id = request.headers.get('X-Request-ID')
+    g.email = request.headers.get('X-User-Email')
 
-    if not email:
+    if not g.client_id:
+        return jsonify({"error": "Header 'X-Client-ID' missing"}), 400
+    
+    if not g.request_id:
+        return jsonify({"error": "Header 'X-Request-ID' missing"}), 400
+
+    if not g.email:
         return jsonify({"error": "Header 'X-User-Email' missing"}), 400
+    
+    cache_key = f"{g.client_id}:{g.request_id}"
+    cached_data = email_check_cache.get(cache_key)
+
+    if cached_data: 
+        response_json = json.loads(cached_data)
+
+        if response_json["status_code"] == 200:
+            return None
+            
+        return jsonify(response_json['body']), response_json['status_code']
 
     try:
         response = stub.CheckUserExists(
-            user_service_pb2.UserCheckRequest(email = email),
+            user_service_pb2.UserCheckRequest(email = g.email),
             timeout=5
         )
 
-        if response.status == 1:
+        response_json = {
+            "status": response.status,
+            "message": response.message
+        }
+
+        cache_packet = { 
+            "body": response_json,
+            "status_code": 200
+        }
+
+        if response.status == 0:
+            email_check_cache.setex(cache_key, 300, json.dumps(cache_packet))
+            return None
+        else:
+            cache_packet["status_code"] = 401
+            email_check_cache.setex(cache_key, 300, json.dumps(cache_packet))
             return jsonify({
                 "error": "User not exists", 
                 "details": response.message
             }), 401
-                
+                        
     except grpc.RpcError as e:
         print(f"ERROR: {e.code().name} - {e.details()}")
 
@@ -87,26 +136,50 @@ def email_check():
 #routes
 @app.route('/airport-of-interest/add', methods=['POST'])
 def add_airports_of_interest():
-    email = request.headers.get('X-User-Email')
+
+    cache_key = f"{g.client_id}:airport_add:{g.request_id}"
+    cached_data = requests_cache.get(cache_key)
+
+    if cached_data: 
+        response_json = json.loads(cached_data)
+        return jsonify(response_json['body']), response_json['status_code']
+    
     data = request.get_json()
     airports = tuple(data.get('airports'))
 
     try:
         for airport in airports:
-            db.session.add(AirportsOfInterest(email=email, icao=airport))
+            db.session.add(AirportsOfInterest(email=g.email, icao=airport))
 
         db.session.commit()
 
         tasks.fetch_and_update_db(airports)
-        return jsonify({"message": "Airports added"}), 201
+
+        response_body = {"message": "Airports added"}
+        cache_packet = { 
+            "body": response_body,
+            "status_code": 201
+        }
+
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+
+        return jsonify(response_body), 201
     
     except IntegrityError as e:
         db.session.rollback()
-        
-        return jsonify({
+
+        response_body = {
             "error": "Duplicate entry or constraint violation",
             "details": "One or more airports are already present for this user."
-        }), 409
+        }
+
+        cache_packet = { 
+            "body": response_body,
+            "status_code": 409
+        }
+
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+        return jsonify(response_body), 409
 
     except SQLAlchemyError as e:
         db.session.rollback()
@@ -117,7 +190,15 @@ def add_airports_of_interest():
         }), 500
 
 @app.route('/get-flights/latest', methods=['GET'])  
-def get_latest_flight():
+def get_latest_flights():
+
+    cache_key = f"{g.client_id}:flights_latest:{g.request_id}"
+    cached_data = requests_cache.get(cache_key)
+
+    if cached_data: 
+        response_json = json.loads(cached_data)
+        return jsonify(response_json['body']), response_json['status_code']
+
     airport = request.args.get('airport')
 
     if not airport:
@@ -136,10 +217,19 @@ def get_latest_flight():
         .limit(1)
         last_arrival = db.session.execute(stmt).scalars().first()
 
-        return jsonify({
+        response_body = {
             "last_departure": last_departure.to_dict(),
             "last_arrival": last_arrival.to_dict()
-        }), 200
+        }
+
+        cache_packet = { 
+            "body": response_body,
+            "status_code": 200
+        }
+
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+        return jsonify(response_body), 200
+    
     except requests.exceptions.RequestException as e:
         return jsonify({
             "error": "Error during api call"
@@ -147,13 +237,20 @@ def get_latest_flight():
 
 @app.route('/airport-of-interest/average', methods=['GET'])
 def average():
+
+    cache_key = f"{g.client_id}:flight_average:{g.request_id}"
+    cached_data = requests_cache.get(cache_key)
+
+    if cached_data: 
+        response_json = json.loads(cached_data)
+        return jsonify(response_json['body']), response_json['status_code']
+
     airport = request.args.get('airport')
     numberOfDays = request.args.get('numberOfDays')
 
     if not airport or not numberOfDays:
         return jsonify({"errore" : " Dati Mancanti. Inserisci l'aeroporto e il numero di giorni"})
 
-    
     try: 
         #limit_date è la data dopo il quale dobbiamo cercare i voli. E' uguale alla data di oggi - i giorni scelti dall'utente.
         # il .raplace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
@@ -175,18 +272,26 @@ def average():
         average_departures = departures_count / numberOfDays
         average_arrivals = arrivals_count / numberOfDays
 
-        return jsonify({
+        response_body = {
             "aeroporto_selezionato": airport,
             "numero_di_giorni_analizzati": numberOfDays,
             "numero_partenze": departures_count,
             "numero_di_arrivi": arrivals_count,
             "media_giornaliera_voli_in_partenza": round(average_departures, 2),
             "media_giornaliera_voli_in_arrivo": round(average_arrivals, 2)
-        }), 200
+        }
+
+        cache_packet = { 
+            "body": response_body,
+            "status_code": 200
+        }
+
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+        return jsonify(response_body), 200
 
     except Exception as e:
         return jsonify({
-            "error": "SQL error",
+            "error": "Error in api",
             "details": str(e)
         }), 500
 

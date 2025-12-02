@@ -36,15 +36,34 @@ services:
       - FLIGHTSDB_PASSWORD=${FLIGHTSDB_PASSWORD}
       - FLIGHTSDB_HOST=${FLIGHTSDB_HOST}
       - SECRETS_PATH=${SECRETS_PATH}
+      - REDIST_HOST=${DATA_REDIS_HOST}
+      - REDIST_PORT=${REDIS_PORT}
     secrets:
       - opensky_secrets
     depends_on:
       flights_db: 
         condition: service_healthy
+      data-cache:
+          condition: service_healthy
     networks:
       - data-network
       - intra-network
     restart: on-failure
+
+  data-cache: 
+    image: redis:alpine
+    container_name: data-cache
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: always
+    networks:
+      - data-network
+    ports:
+      - "${DATA_REDIS_HOST_PORT}:${REDIS_PORT}"
 
   user-db: 
     image: mariadb:12.0.2-ubi10
@@ -87,19 +106,20 @@ services:
       - PASSWORD_DB=${PASSWORD_DB} #12345
       - NAME_DB=${NAME_DB} #user_db
       - USER_DB_PORT=${USER_DB_PORT}
-      - REDIST_HOST=${REDIS_HOST}
+      - REDIST_HOST=${USER_REDIS_HOST}
+      - REDIST_PORT=${REDIS_PORT}
     depends_on:
       user-db:
           condition: service_healthy
-      redis-cache:
+      user-cache:
           condition: service_healthy
     networks:
       - user-network
       - intra-network
   
-  redis-cache: 
+  user-cache: 
     image: redis:alpine
-    container_name: redis-cache
+    container_name: user-cache
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -110,7 +130,7 @@ services:
     networks:
       - user-network
     ports:
-      - "${REDIS_HOST_PORT}:${REDIS_PORT}"
+      - "${USER_REDIS_HOST_PORT}:${REDIS_PORT}"
 
 volumes:
   flightdb_data:
