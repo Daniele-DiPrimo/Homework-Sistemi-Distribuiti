@@ -1,6 +1,8 @@
 import os
 from flask import Flask, request, jsonify
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import func
+import requests
 from extensions import db, scheduler
 from models import AirportsOfInterest, Flights
 import tasks
@@ -63,6 +65,10 @@ def email_check():
     if not email:
         return jsonify({"error": "Header 'X-User-Email' missing"}), 400
 
+
+    # CHECK SULLA CACHE, 
+
+
     try:
         response = stub.CheckUserExists(
             user_service_pb2.UserCheckRequest(email = email),
@@ -79,7 +85,7 @@ def email_check():
         print(f"ERROR: {e.code().name} - {e.details()}")
 
         return jsonify({
-            "error": "Validation service non available",
+            "error": "Validation service not available",
         }), 503
 
 
@@ -90,6 +96,8 @@ def add_airports_of_interest():
     data = request.get_json()
     airports = tuple(data.get('airports'))
 
+
+    #logica di business
     try:
         for airport in airports:
             db.session.add(AirportsOfInterest(email=email, icao=airport))
@@ -115,13 +123,39 @@ def add_airports_of_interest():
             "details": str(e)
         }), 500
 
-@app.route('/airport-of-interest/average', methods=['POST'])
-def average():
-    data = request.get_json()
-    airport = data['aeroporto']
-    numberOfDays = data['numero_giorni']
+@app.route('/get-flights/latest', methods=['GET'])  
+def get_latest_flight():
+    airport = request.args.get('airport')
+
+    if not airport:
+        return jsonify({"message": "Parameter 'airport' missing"}), 400
     
-    print(f"airport = {airport} number of days {numberOfDays}")
+    try:  
+        stmt = db.select(Flights)\
+        .where(Flights.estDepartureAirport == airport)\
+        .order_by(Flights.firstSeen.desc())\
+        .limit(1)
+        last_departure = db.session.execute(stmt).scalars().first()
+
+        stmt = db.select(Flights)\
+        .where(Flights.estArrivalAirport == airport)\
+        .order_by(Flights.lastSeen.desc())\
+        .limit(1)
+        last_arrival = db.session.execute(stmt).scalars().first()
+
+        return jsonify({
+            "last_departure": last_departure.to_dict(),
+            "last_arrival": last_arrival.to_dict()
+        }), 200
+    except requests.exceptions.RequestException as e:
+        return jsonify({
+            "error": "Error during api call"
+        }), 500
+
+@app.route('/airport-of-interest/average', methods=['GET'])
+def average():
+    airport = request.args.get('airport')
+    numberOfDays = request.args.get('numberOfDays')
 
     if not airport or not numberOfDays:
         return jsonify({"errore" : " Dati Mancanti. Inserisci l'aeroporto e il numero di giorni"})
@@ -139,14 +173,11 @@ def average():
             Flights.estDepartureAirport == airport,
             Flights.firstSeen >= limit_date
         ).scalar()
-        print(f"prima query fatta {departures_count}")
 
         arrivals_count = db.session.query(func.count(Flights.id)).filter(
             Flights.estArrivalAirport == airport,
             Flights.lastSeen >= limit_date
         ).scalar()
-
-        print(f"seconda query fatta {departures_count}")
 
         average_departures = departures_count / numberOfDays
         average_arrivals = arrivals_count / numberOfDays
@@ -161,8 +192,10 @@ def average():
         }), 200
 
     except Exception as e:
-        return jsonify({"errore inaspettato SQL": str(e)}), 500
-
+        return jsonify({
+            "error": "SQL error",
+            "details": str(e)
+        }), 500
 
 
 if __name__ == '__main__':
