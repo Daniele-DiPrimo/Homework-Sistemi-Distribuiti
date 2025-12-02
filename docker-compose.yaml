@@ -70,10 +70,10 @@ services:
     container_name: user-db
     restart: always 
     environment:
-      - MARIADB_ROOT_PASSWORD=${PASSWORD_ROOT_DB}   #rootpassword
-      - MARIADB_DATABASE=${NAME_DB}        #user_db
-      - MARIADB_USER=${USER_DB}            #user_service
-      - MARIADB_PASSWORD=${PASSWORD_DB}       #12345
+      - MARIADB_ROOT_PASSWORD=${PASSWORD_ROOT_DB}
+      - MARIADB_DATABASE=${NAME_DB}
+      - MARIADB_USER=${USER_DB}
+      - MARIADB_PASSWORD=${PASSWORD_DB}
     ports:
       - "${USER_DB_HOST_PORT}:${USER_DB_PORT}"
     healthcheck:
@@ -88,23 +88,18 @@ services:
       - userdb_data:/var/lib/mysql
 
 
-# --- USER MANAGER (Immagine costruita da noi) ---
   user-manager:
-    build: ./user_manager  # Cerca il Dockerfile qui dentro
+    build: ./user_manager
     container_name: user-manager
     restart: always
     ports:
-      - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"  # Espone Flask (REST)
-      # - "50051:50051"  Espone gRPC
+      - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"
     environment:
-      # CONFIGURAZIONE FONDAMENTALE:
-      # Qui diciamo a Python di non cercare il DB su localhost, 
-      # ma all'indirizzo interno di Docker chiamato 'user-db'
       - PYTHONUNBUFFERED= 1
-      - HOST_DB=${HOST_DB} #user-db
-      - USER_DB=${USER_DB} #user_service
-      - PASSWORD_DB=${PASSWORD_DB} #12345
-      - NAME_DB=${NAME_DB} #user_db
+      - HOST_DB=${HOST_DB}
+      - USER_DB=${USER_DB}
+      - PASSWORD_DB=${PASSWORD_DB}
+      - NAME_DB=${NAME_DB}
       - USER_DB_PORT=${USER_DB_PORT}
       - REDIST_HOST=${USER_REDIS_HOST}
       - REDIST_PORT=${REDIS_PORT}

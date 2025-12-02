@@ -33,6 +33,7 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
+#redis setup
 email_check_cache = redis.Redis(
     host=os.getenv('REDIS_HOST', 'data-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
@@ -92,15 +93,12 @@ def email_check():
     cached_data = email_check_cache.get(cache_key)
 
     if cached_data: 
-        response_json = json.loads(cached_data)
+        cached_json = json.loads(cached_data)
 
-        if response_json["status_code"] == 200:
+        if cached_json["status_code"] == 200:
             return None
             
-        return jsonify(response_json['body']), response_json['status_code']
-
-
-    # CHECK SULLA CACHE, 
+        return jsonify(cached_json['body']), cached_json['status_code']
 
 
     try:
@@ -125,10 +123,7 @@ def email_check():
         else:
             cache_packet["status_code"] = 401
             email_check_cache.setex(cache_key, 300, json.dumps(cache_packet))
-            return jsonify({
-                "error": "User not exists", 
-                "details": response.message
-            }), 401
+            return jsonify(response_json), 401
                         
     except grpc.RpcError as e:
         print(f"ERROR: {e.code().name} - {e.details()}")
@@ -153,7 +148,6 @@ def add_airports_of_interest():
     airports = tuple(data.get('airports'))
 
 
-    #logica di business
     try:
         for airport in airports:
             db.session.add(AirportsOfInterest(email=g.email, icao=airport))
@@ -253,19 +247,17 @@ def average():
         return jsonify(response_json['body']), response_json['status_code']
 
     airport = request.args.get('airport')
-    numberOfDays = request.args.get('numberOfDays')
+    numberOfDays = request.args.get('numberOfDays', default=1, type=int)
 
     if not airport or not numberOfDays:
         return jsonify({"errore" : " Dati Mancanti. Inserisci l'aeroporto e il numero di giorni"})
 
     try: 
         #limit_date è la data dopo il quale dobbiamo cercare i voli. E' uguale alla data di oggi - i giorni scelti dall'utente.
-        # il .raplace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
+        # il .replace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
         limit_date = (datetime.now() - timedelta(days=numberOfDays)).replace(hour=0, minute=0, second=0, microsecond=0)
         print(f"limit_date {limit_date}")
 
-        #func è una libreria di sqlAlchemy che ha la funzione count --> la query ritorna il numero di voli 
-        # in departures_count ci sarà il numero di flight.id filtrati per data e estArrivalAirport
         departures_count = db.session.query(func.count(Flights.id)).filter(
             Flights.estDepartureAirport == airport,
             Flights.firstSeen >= limit_date

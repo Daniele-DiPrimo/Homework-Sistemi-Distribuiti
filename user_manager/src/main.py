@@ -30,12 +30,11 @@ db.init_app(app)
 with app.app_context():
     db.create_all()
 
-redis_client = redis.Redis(   #redis_client è un oggetto py che funge da clinet/driver per il controllo di redis container. Redis container è un Remote Dictionary Server. 
-    
+redis_client = redis.Redis(
     host=os.getenv('REDIS_HOST', 'user-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
     db = 0,
-    decode_responses = True    # converte tutti i dati all'interno della cache redis in stringhe 
+    decode_responses = True    #converte tutti i dati all'interno della cache redis in stringhe 
 )
 
 class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer): 
@@ -59,9 +58,6 @@ def run_grpc_server():
 
     user_service_pb2_grpc.add_CheckUserServiceServicer_to_server(CheckUserHandler(), server)
 
-    # [::]:50051 --> Mette il server gRPC in ascolto sulla porta 50051. [::] --> La porta 50051 accetta connesioni
-    # da chiunque, quindi da tutte le interfacce di rete, a prescindere da dove si trovino. 
-    # In realtà il container gRPC non ha port mapping, quindi non è esposto all'esterno --> In questo modo può instaurare connessione solo con i container appartenti alla stessa network
     server.add_insecure_port('[::]:50051')  
     print("gRPC Server in ascolto sulla porta 50051...")
     server.start()
@@ -69,30 +65,27 @@ def run_grpc_server():
 
 @app.route('/register', methods = ['POST'])
 def register_user(): 
-    # prima della logica di business, lavoro sulla redis's cache --> controlla sulla richiesta.
-    # Controllo sulla cache di redis, associo ad ogni richiesta un request_id. Il request_id sarà generato ... LOGICA REDIS
+    # prima della logica di business controllo sulla cache di redis se la richiesta è già stata gestita
 
-    request_id = request.headers.get('X-Request-ID')  # E' pratica comune mettere il prefisso X- per header che non fanno parte dello standard ufficiale X-Request-ID --> il client genererà un ID Request
-    # casuale che identificherà una richiesta specifica di quel client.
-    # aggiungo il clientID
+    request_id = request.headers.get('X-Request-ID')
     client_id = request.headers.get('X-Client-ID')
 
-    if not request_id or not client_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
+    if not request_id or not client_id:
         return jsonify({"error": "X-REQUEST-ID/X-ClientID mancante nell'header della richiesta HTTP."}), 400   
 
     
     #la chiave cache sarà formata dalla concatenazione di client_id - nome del servizio - request_id
     cache_key = f"{client_id}:register:{request_id}"
     
-    cached_data = redis_client.get(cache_key) # controllo se esiste una corrispondenza nella cache di redis
+    cached_data = redis_client.get(cache_key)
 
-    if cached_data: #esiste una corrispondenza nella cache --> l'utente ha già inviato la richiesta
+    #esiste la corrispondenza, richiesta già gestita
+    if cached_data:
         print(f"Risposta presente nella cache. Cache Data: {cached_data}, cachekey{cache_key}")
-        response_json = json.loads(cached_data)  #per ritornare la richiesta in formato json convertiamo i dati presenti nella cache ( avevamo impostato essere stringhe ) in json, poi ritorniamo.
+        response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']
     
     # non esiste una corrispondenza, la richiesta è inviata per la prima volta, quindi passo alla logica di business
-    #LOGICA DI BUSINESS
     data = request.get_json()
 
     if not data or 'email' not in data: 
@@ -105,7 +98,6 @@ def register_user():
 
     success = User.add_user(email, nome, cognome)
 
-    # se l'utente è stato correttamente inserito nel db, creo un dizionario py --> successo.
     if success:        
         response_body = {              
             "message": "Utente registrato con successo",
@@ -114,7 +106,7 @@ def register_user():
         }
         status_code = 201
 
-    else: # creo un dizionario py --> fallimento.
+    else:
         response_body = {              
             "message": "Utente già registrato, email presente in archivio.",
             "email_request": email,  
@@ -122,13 +114,13 @@ def register_user():
         }
         status_code = 409
 
-    cache_packet = {  # creo il pacchetto da inserire all'interno della cache.
+    cache_packet = {
         "body": response_body,
         "status_code": status_code,
     }
-    redis_client.setex(cache_key, 3600, json.dumps(cache_packet))  #3600 --> la cache di redis terrà i dati per 1 ora. json.dumps(cache_packet) permette di salvare i dati in cache in formato stringa.
+    redis_client.setex(cache_key, 3600, json.dumps(cache_packet))  #3600 --> la cache di redis terrà i dati per 1 ora
 
-    return jsonify(response_body), status_code # converto il dizionario py in json e lo ritorno.
+    return jsonify(response_body), status_code
 
 
 @app.route('/delete', methods = ['POST'])
@@ -141,18 +133,17 @@ def delete_user():
     request_id = request.headers.get('X-Request-ID')
     client_id = request.headers.get('X-Client-ID')
 
-    if not request_id or not client_id: # non credo sia possibile un caso del genere, ma attraverso questo controllo evito comportamenti indesiderati. Se nell'header non c'è nessun Request-ID, ritorno un messaggio di errore.
+    if not request_id or not client_id:
         return jsonify({"error": "X-REQUEST-ID/X-Client-ID mancante nell'header della richiesta HTTP."}), 400 
 
     cache_key = f"{client_id}:delete:{request_id}"
     cached_data = redis_client.get(cache_key)
 
-    if cached_data: #esiste una corrispondenza nella cache --> l'utente ha già inviato la richiesta
+    if cached_data:
         print(f"Risposta presente nella cache. Cache Data: {cached_data}, CacheKey {request_id}")
-        response_json = json.loads(cached_data)  #per ritornare la richiesta in formato json convertiamo i dati presenti nella cache ( avevamo impostato essere stringhe ) in json, poi ritorniamo.
+        response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']
     
-    #LOGICA DI BUSINESS
     data = request.get_json()
 
     if not data or 'email' not in data: 
@@ -189,15 +180,12 @@ def delete_user():
 
 
 if __name__ == '__main__':
-    # 1. Avviamo il server gRPC in un thread separato (background)
-    # 'daemon=True' significa che se chiudi il programma principale, muore anche questo thread
+    
+    """utilizzo un thread per il server grpc in modo tale che quando viene eseguita
+    wait_for_termination() non viene bloccato il main thread che gestisce le api request"""
     grpc_thread = threading.Thread(target=run_grpc_server, daemon=True)
     grpc_thread.start()
 
-    # 2. Avviamo Flask nel thread principale (foreground)
-    print("🌍 REST Server in ascolto sulla porta 5000...")
-    
-    # host='0.0.0.0', port=5000 --> il REST server si mette in ascolto sulla porta 5000 e riceve (host = '0.0.0.0' --> indirizzo IPV4) connessioni da chiunque
-    # Non può essere visibile solo a LocalHost perchè deve acccettare richieste dall'esterno: postman. 
+    print("REST Server in ascolto sulla porta 5000...")
     app.run(host='0.0.0.0', port=5000, debug=False)
 

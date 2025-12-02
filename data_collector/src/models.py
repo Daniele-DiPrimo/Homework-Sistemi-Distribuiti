@@ -23,9 +23,9 @@ class Flights(db.Model):
         return {
             "id": self.id,
             "icao24": self.icao24,
-            "firstSeen": self.firstSeen,
+            "firstSeen": self.firstSeen.isoformat(),
             "estDepartureAirport": self.estDepartureAirport,
-            "lastSeen": self.lastSeen,
+            "lastSeen": self.lastSeen.isoformat(),
             "estArrivalAirport": self.estArrivalAirport,
             "callsign": self.callsign
         }
