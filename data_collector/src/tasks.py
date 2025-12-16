@@ -7,25 +7,22 @@ import json
 from models import AirportsOfInterest, Flights
 from sqlalchemy import insert
 from datetime import datetime
+from circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=5)
 
 def get_opensky_token():
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
     
     secrets_path = os.getenv('SECRETS_PATH', '')
 
-    try:
-        with open(secrets_path, 'r') as f:
-            config = json.load(f)
+    with open(secrets_path, 'r') as f:
+        config = json.load(f)
         
-        client_id = config['clientId']
-        client_secret = config['clientSecret']
-
-    except FileNotFoundError:
-        logger.error("Secrets not found!")
-        return None
+    client_id = config['clientId']
+    client_secret = config['clientSecret']
 
     payload = {
         "grant_type": "client_credentials",
@@ -33,17 +30,13 @@ def get_opensky_token():
         "client_secret": client_secret
     }
 
-    try: 
-        # data=payload set header at 'Content-Type: application/x-www-form-urlencoded'
-        response = requests.post(url, data=payload, timeout=10)
-        response.raise_for_status()
+    # data=payload set header at 'Content-Type: application/x-www-form-urlencoded'
+    response = requests.post(url, data=payload, timeout=10)
+    response.raise_for_status()
 
-        token_data = response.json()
-        access_token = token_data.get("access_token")
-        return access_token
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error retrieving token: {e}")
-        return None
+    token_data = response.json()
+    access_token = token_data.get("access_token")
+    return access_token
 
 def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None):
     departures_url = "https://opensky-network.org/api/flights/departure"
@@ -67,40 +60,41 @@ def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None
         "end": end
     }
 
-    try:
-        response = requests.get(url, params=payload, headers=headers, timeout=15)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            print(f"Airport not supported or no data available for: {icao}")
-            return []
-    except requests.exceptions.ReadTimeout:
-        print(f"Timeout expired for: {icao}")
+    response = requests.get(url, params=payload, headers=headers, timeout=15)
+
+    if response.status_code == 404:
+        logger.info(f"Airport not supported or no data available for: {icao}")
         return []
-    except requests.exceptions.RequestException as e:
-        print(f"Error during api call: {e}")
-        return []
+    
+    response.raise_for_status()
+    return response.json()
 
 def fetch_and_update_db(airports_icao):
     #retrieving token
-    token = get_opensky_token()
-
-    if not token:
-        logger.error("Error retrieving token!")
-        return
+    token = circuit_breaker.call(get_opensky_token)
         
     #retrieving info on flights for specified airports
     result = []
+    end = int(time.time())
+    begin = end - 86400
 
-    for icao in airports_icao:
-        end = int(time.time())
-        begin = end - 86400
-        result += get_flights_by_airport(icao, begin, end, token, departure=True, arrival=True)
+    for icao in airports_icao: 
+        try:
+            result += circuit_breaker.call(
+                get_flights_by_airport,
+                icao,
+                begin,
+                end,
+                token,
+                departure=True,
+                arrival=True
+            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error during API call for {icao}: {e}")
+            continue
 
     if not result:
-        logger.info("--- No results found. ---")
-        return
+        raise Exception("No results found.")
 
     #cleaning and filtering results
     clean_result = []
@@ -125,15 +119,22 @@ def update_database():
     with scheduler.app.app_context():
         logger.info("--- Updating database... ---")
         
-        #read airports from flights_db
-        stmt = db.select(AirportsOfInterest.icao)
-        result = db.session.execute(stmt)
-        airports_icao = result.scalars().all()
+        try: 
+            #read airports from flights_db
+            stmt = db.select(AirportsOfInterest.icao)
+            result = db.session.execute(stmt)
+            airports_icao = result.scalars().all()
 
-        if not airports_icao:
-            logger.info("--- No airports found in DB. ---")
-            return
-        
-        fetch_and_update_db(airports_icao)
+            if not airports_icao:
+                logger.info("--- No airports found in DB. ---")
+                return
+            
+            fetch_and_update_db(airports_icao)
+            logger.info("--- Update done. ---")
 
-        logger.info("--- Update done. ---")
+        except CircuitBreakerOpenException:
+            logger.error("Circuit is open. Skipping call.")
+        except FileNotFoundError:
+            logger.error("Cannot receive token: Secrets not found!")
+        except Exception as e:
+            logger.error(f"Generic error: {e}")

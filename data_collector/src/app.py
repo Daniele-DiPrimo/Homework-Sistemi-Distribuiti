@@ -12,6 +12,10 @@ from datetime import datetime, timedelta
 import redis
 import json
 from sqlalchemy import func
+from circuit_breaker import CircuitBreakerOpenException
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
@@ -126,7 +130,7 @@ def email_check():
             return jsonify(response_json), 401
                         
     except grpc.RpcError as e:
-        print(f"ERROR: {e.code().name} - {e.details()}")
+        logger.error(f"ERROR: {e.code().name} - {e.details()}")
 
         return jsonify({
             "error": "Validation service not available",
@@ -145,27 +149,21 @@ def add_airports_of_interest():
         return jsonify(response_json['body']), response_json['status_code']
     
     data = request.get_json()
-    airports = tuple(data.get('airports'))
+    airports = data.get('airports')
 
-
+    if airports is None or []:
+      return jsonify({"error": "No airports specified"}), 400
+    
     try:
         for airport in airports:
-            db.session.add(AirportsOfInterest(email=g.email, icao=airport))
-
+            db.session.add(AirportsOfInterest(
+                email=g.email,
+                icao=airport.get('icao'),
+                high_value=airport.get('high_value'),
+                low_value=airport.get('low_value')
+            ))
         db.session.commit()
-
-        tasks.fetch_and_update_db(airports)
-
-        response_body = {"message": "Airports added"}
-        cache_packet = { 
-            "body": response_body,
-            "status_code": 201
-        }
-
-        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-
-        return jsonify(response_body), 201
-    
+        
     except IntegrityError as e:
         db.session.rollback()
 
@@ -181,7 +179,7 @@ def add_airports_of_interest():
 
         requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
         return jsonify(response_body), 409
-
+    
     except SQLAlchemyError as e:
         db.session.rollback()
         
@@ -190,6 +188,28 @@ def add_airports_of_interest():
             "details": str(e)
         }), 500
 
+    try:
+        #PASSARE GLI ICAO COSI STO PASSANDO GLI OGGETTI
+        icao_list = [airport['icao'] for airport in airports]
+        tasks.fetch_and_update_db(icao_list)
+
+        response_body = {"message": "Airports added"}
+        cache_packet = { 
+            "body": response_body,
+            "status_code": 201
+        }
+
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+        return jsonify(response_body), 201
+    
+    except CircuitBreakerOpenException:
+        return jsonify({"error": "Circuit is open, skipping call."}), 500
+    except FileNotFoundError:
+        return jsonify({"error": "Cannot receive token: Secrets not found!"}), 500
+    except Exception as e:
+        logger.error(str(e))
+        return jsonify({"error": f"Generic error: {e}"}), 500
+    
 @app.route('/get-flights/latest', methods=['GET'])  
 def get_latest_flights():
 
@@ -256,7 +276,6 @@ def average():
         #limit_date è la data dopo il quale dobbiamo cercare i voli. E' uguale alla data di oggi - i giorni scelti dall'utente.
         # il .replace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
         limit_date = (datetime.now() - timedelta(days=numberOfDays)).replace(hour=0, minute=0, second=0, microsecond=0)
-        print(f"limit_date {limit_date}")
 
         departures_count = db.session.query(func.count(Flights.id)).filter(
             Flights.estDepartureAirport == airport,
