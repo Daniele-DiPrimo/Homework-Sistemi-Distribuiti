@@ -1,5 +1,3 @@
-#LABEL author="MatteoSecondo"
-
 FROM python:3.14-slim
 WORKDIR /src/app
 COPY . .

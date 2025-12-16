@@ -12,7 +12,14 @@ from datetime import datetime, timedelta
 import redis
 import json
 from sqlalchemy import func
+<<<<<<< HEAD
 from kafkaClient import init_kafka_producer, get_producer
+=======
+from circuit_breaker import CircuitBreakerOpenException
+import logging
+
+logger = logging.getLogger(__name__)
+>>>>>>> 89bf0dd551785bbb770c291da52225dfa96ab055
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
@@ -71,8 +78,25 @@ service_config = """{
     }]
 }"""
 
-options = [('grpc.service_config', service_config)]
-channel = grpc.insecure_channel('user-manager:50051', options=options)
+cert_path = os.getenv('SSL_CERT_FILE', '')
+
+try:
+    with open(cert_path, 'rb') as f:
+        trusted_certs = f.read()
+except FileNotFoundError:
+    logger.error(f"Critical error: SSL certificate not found. Cannot establish gRPC channel.")
+    exit(1)
+
+creds = grpc.ssl_channel_credentials(root_certificates=trusted_certs)
+
+target = 'api_gateway:443' 
+
+options = [
+    ('grpc.service_config', service_config),
+    ('grpc.ssl_target_name_override', 'localhost')
+]
+
+channel = grpc.secure_channel(target, creds, options=options)
 stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
 
 #init producer kafka
@@ -131,7 +155,7 @@ def email_check():
             return jsonify(response_json), 401
                         
     except grpc.RpcError as e:
-        print(f"ERROR: {e.code().name} - {e.details()}")
+        logger.error(f"ERROR: {e.code().name} - {e.details()}")
 
         return jsonify({
             "error": "Validation service not available",
@@ -150,27 +174,21 @@ def add_airports_of_interest():
         return jsonify(response_json['body']), response_json['status_code']
     
     data = request.get_json()
-    airports = tuple(data.get('airports'))
+    airports = data.get('airports')
 
-
+    if airports is None or []:
+      return jsonify({"error": "No airports specified"}), 400
+    
     try:
         for airport in airports:
-            db.session.add(AirportsOfInterest(email=g.email, icao=airport))
-
+            db.session.add(AirportsOfInterest(
+                email=g.email,
+                icao=airport.get('icao'),
+                high_value=airport.get('high_value'),
+                low_value=airport.get('low_value')
+            ))
         db.session.commit()
-
-        tasks.fetch_and_update_db(airports)
-
-        response_body = {"message": "Airports added"}
-        cache_packet = { 
-            "body": response_body,
-            "status_code": 201
-        }
-
-        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-
-        return jsonify(response_body), 201
-    
+        
     except IntegrityError as e:
         db.session.rollback()
 
@@ -186,15 +204,45 @@ def add_airports_of_interest():
 
         requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
         return jsonify(response_body), 409
-
+    
     except SQLAlchemyError as e:
         db.session.rollback()
         
         return jsonify({
-            "error": "Database error", 
+            "error": "Database error, cant add the airports", 
             "details": str(e)
         }), 500
 
+    try:
+        icao_list = [airport['icao'] for airport in airports]
+        tasks.fetch_and_update_db(icao_list)
+
+        response_body = {"message": "Airports added"}
+        cache_packet = { 
+            "body": response_body,
+            "status_code": 201
+        }
+
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+        return jsonify(response_body), 201
+    
+    except CircuitBreakerOpenException:
+        return jsonify({
+            "message": "Airports added",
+            "warning": "Some updates related to one or more of the airports failed. Circuit is open, skipping call."
+        }), 201
+    except FileNotFoundError:
+        return jsonify({
+            "message": "Airports added",
+            "warning": "Some updates related to one or more of the airports failed. Cannot receive token, api secrets not found!"
+        }), 201
+    except Exception as e:
+        logger.error(str(e))
+        return jsonify({
+            "message": "Airports added",
+            "warning": f"Some updates related to one or more of the airports failed. Generic error: {e}"
+        }), 201
+    
 @app.route('/get-flights/latest', methods=['GET'])  
 def get_latest_flights():
 
@@ -261,7 +309,6 @@ def average():
         #limit_date è la data dopo il quale dobbiamo cercare i voli. E' uguale alla data di oggi - i giorni scelti dall'utente.
         # il .replace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
         limit_date = (datetime.now() - timedelta(days=numberOfDays)).replace(hour=0, minute=0, second=0, microsecond=0)
-        print(f"limit_date {limit_date}")
 
         departures_count = db.session.query(func.count(Flights.id)).filter(
             Flights.estDepartureAirport == airport,

@@ -48,11 +48,12 @@ services:
       # Montiamo la cartella coi certificati
       - ./api_gateway/SSL:/etc/nginx/ssl:ro
     depends_on:
-      - user-manager
-      - data-collector
+      user-manager:
+        condition: service_healthy
+      data-collector:
+        condition: service_started
     networks:
-      - user-network
-      - data-network
+      - gateway-network
 
   flights_db:
     image: mariadb:10.11
@@ -83,7 +84,12 @@ services:
     #  - "${DATA_COLLECTOR_HOST_PORT}:${DATA_COLLECTOR_PORT}"
     expose:
       - "5001"
+    volumes:
+      # Montiamo la cartella locale ./api_gateway/SSL dentro al container in /app/certs
+      # In questo modo il client Python può leggere nginx.crt
+      - ./api_gateway/SSL:/app/certs:ro
     environment:
+      - SSL_CERT_FILE=${SSL_CERT_FILE}
       - PYTHONUNBUFFERED=1
       - DATA_COLLECTOR_PORT=${DATA_COLLECTOR_PORT}
       - FLIGHTSDB_PORT=${FLIGHTSDB_PORT}
@@ -104,6 +110,7 @@ services:
     networks:
       - data-network
       - intra-network
+      - gateway-network
     restart: on-failure
 
   data-cache: 
@@ -155,6 +162,13 @@ services:
     #  - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"
     expose:
       - "5000"
+    healthcheck:
+      # Prova a connettersi a localhost:50051. Se riesce, esce con 0 (OK).
+      test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051));\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     environment:
       - PYTHONUNBUFFERED= 1
       - HOST_DB=${HOST_DB}
@@ -172,6 +186,7 @@ services:
     networks:
       - user-network
       - intra-network
+      - gateway-network
   
   user-cache: 
     image: redis:alpine
@@ -197,6 +212,7 @@ networks:
   user-network:
   data-network:
   intra-network:
+  gateway-network:
 
 secrets:
   opensky_secrets:
