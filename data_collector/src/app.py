@@ -72,8 +72,25 @@ service_config = """{
     }]
 }"""
 
-options = [('grpc.service_config', service_config)]
-channel = grpc.insecure_channel('user-manager:50051', options=options)
+cert_path = os.getenv('SSL_CERT_FILE', '')
+
+try:
+    with open(cert_path, 'rb') as f:
+        trusted_certs = f.read()
+except FileNotFoundError:
+    logger.error(f"Critical error: SSL certificate not found. Cannot establish gRPC channel.")
+    exit(1)
+
+creds = grpc.ssl_channel_credentials(root_certificates=trusted_certs)
+
+target = 'api_gateway:443' 
+
+options = [
+    ('grpc.service_config', service_config),
+    ('grpc.ssl_target_name_override', 'localhost')
+]
+
+channel = grpc.secure_channel(target, creds, options=options)
 stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
 
 
@@ -184,12 +201,11 @@ def add_airports_of_interest():
         db.session.rollback()
         
         return jsonify({
-            "error": "Database error", 
+            "error": "Database error, cant add the airports", 
             "details": str(e)
         }), 500
 
     try:
-        #PASSARE GLI ICAO COSI STO PASSANDO GLI OGGETTI
         icao_list = [airport['icao'] for airport in airports]
         tasks.fetch_and_update_db(icao_list)
 
@@ -203,12 +219,21 @@ def add_airports_of_interest():
         return jsonify(response_body), 201
     
     except CircuitBreakerOpenException:
-        return jsonify({"error": "Circuit is open, skipping call."}), 500
+        return jsonify({
+            "message": "Airports added",
+            "warning": "Some updates related to one or more of the airports failed. Circuit is open, skipping call."
+        }), 201
     except FileNotFoundError:
-        return jsonify({"error": "Cannot receive token: Secrets not found!"}), 500
+        return jsonify({
+            "message": "Airports added",
+            "warning": "Some updates related to one or more of the airports failed. Cannot receive token, api secrets not found!"
+        }), 201
     except Exception as e:
         logger.error(str(e))
-        return jsonify({"error": f"Generic error: {e}"}), 500
+        return jsonify({
+            "message": "Airports added",
+            "warning": f"Some updates related to one or more of the airports failed. Generic error: {e}"
+        }), 201
     
 @app.route('/get-flights/latest', methods=['GET'])  
 def get_latest_flights():
