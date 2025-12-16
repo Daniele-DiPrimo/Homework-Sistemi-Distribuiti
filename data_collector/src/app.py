@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import redis
 import json
 from sqlalchemy import func
+from kafkaClient import init_kafka_producer, get_producer
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
@@ -29,6 +30,8 @@ SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{d
 app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
+
+
 
 with app.app_context():
     db.create_all()
@@ -72,6 +75,8 @@ options = [('grpc.service_config', service_config)]
 channel = grpc.insecure_channel('user-manager:50051', options=options)
 stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
 
+#init producer kafka
+init_kafka_producer()
 
 #middleware
 @app.before_request
@@ -294,6 +299,7 @@ def average():
             "details": str(e)
         }), 500
 
+#def send_to_kafka(cleanResult): 
 
 if __name__ == '__main__':
     port = int(os.environ.get('DATA_COLLECTOR_PORT', 5000))
