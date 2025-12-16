@@ -109,7 +109,6 @@ services:
           condition: service_healthy
     networks:
       - data-network
-      - intra-network
       - gateway-network
     restart: on-failure
 
@@ -185,7 +184,6 @@ services:
           condition: service_healthy
     networks:
       - user-network
-      - intra-network
       - gateway-network
   
   user-cache: 
@@ -211,7 +209,6 @@ volumes:
 networks:
   user-network:
   data-network:
-  intra-network:
   gateway-network:
 
 secrets:

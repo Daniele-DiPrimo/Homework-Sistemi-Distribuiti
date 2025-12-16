@@ -12,14 +12,11 @@ from datetime import datetime, timedelta
 import redis
 import json
 from sqlalchemy import func
-<<<<<<< HEAD
 from kafkaClient import init_kafka_producer, get_producer
-=======
 from circuit_breaker import CircuitBreakerOpenException
 import logging
 
 logger = logging.getLogger(__name__)
->>>>>>> 89bf0dd551785bbb770c291da52225dfa96ab055
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
