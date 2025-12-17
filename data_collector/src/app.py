@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import redis
 import json
 from sqlalchemy import func
-from kafkaClient import init_kafka_producer, get_producer
+import kafkaClient as p
 from circuit_breaker import CircuitBreakerOpenException
 import logging
 
@@ -97,7 +97,7 @@ channel = grpc.secure_channel(target, creds, options=options)
 stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
 
 #init producer kafka
-init_kafka_producer()
+producer = p.KafkaProducer(topic='to-alert-system')
 
 #middleware
 @app.before_request
@@ -172,6 +172,7 @@ def add_airports_of_interest():
     
     data = request.get_json()
     airports = data.get('airports')
+    
 
     if airports is None or []:
       return jsonify({"error": "No airports specified"}), 400
@@ -213,7 +214,7 @@ def add_airports_of_interest():
     try:
         icao_list = [airport['icao'] for airport in airports]
         result = tasks.fetch_and_update_db(icao_list)
-        tasks.send_to_kafka(result, icao_list, g.email)
+        tasks.send_to_kafka(result, icao_list, producer, g.email)
 
         response_body = {"message": "Airports added"}
         cache_packet = { 

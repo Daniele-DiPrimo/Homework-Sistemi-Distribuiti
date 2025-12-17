@@ -9,7 +9,6 @@ from sqlalchemy import insert
 from datetime import datetime
 from circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
 from collections import Counter
-from kafkaClient import get_producer, init_kafka_producer
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +117,7 @@ def fetch_and_update_db(airports_icao):
     return clean_result
 
 
-def send_to_kafka(results, icao_list, user_email=None):
+def send_to_kafka(results, icao_list, producer, user_email=None):
     if not results:
         logger.info("Nessun volo presente in cleanResult da inviare.")
         return
@@ -148,15 +147,6 @@ def send_to_kafka(results, icao_list, user_email=None):
             AirportsOfInterest.icao.in_(icao_list)
         ).all()
     
-    #INVIO A KAFKA
-    producer = get_producer()
-
-    if not producer:
-        logger.error("Kafka Producer non disponibile! Impossibile inviare statistiche.")
-        return
-
-    topic_name = 'to-alert-system' 
-
     #Costruiamo il messaggio JSON
     interests_data = [i.to_dict() for i in interests]
 
@@ -166,7 +156,7 @@ def send_to_kafka(results, icao_list, user_email=None):
     }
 
     # Invio al broker
-    producer.send(topic_name, value=json.dumps(payload))
+    producer.send(payload)
 
     logger.info("Invio statistiche totali completato.")
 
