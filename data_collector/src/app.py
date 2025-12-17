@@ -212,7 +212,8 @@ def add_airports_of_interest():
 
     try:
         icao_list = [airport['icao'] for airport in airports]
-        tasks.fetch_and_update_db(icao_list)
+        result = tasks.fetch_and_update_db(icao_list)
+        tasks.send_to_kafka(result, icao_list, g.email)
 
         response_body = {"message": "Airports added"}
         cache_packet = { 
@@ -342,8 +343,6 @@ def average():
             "error": "Error in api",
             "details": str(e)
         }), 500
-
-#def send_to_kafka(cleanResult): 
 
 if __name__ == '__main__':
     port = int(os.environ.get('DATA_COLLECTOR_PORT', 5000))

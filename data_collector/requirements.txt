@@ -6,3 +6,4 @@ Flask-APScheduler
 pymysql
 requests
 redis
+kafka-python

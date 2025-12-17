@@ -8,6 +8,8 @@ from models import AirportsOfInterest, Flights
 from sqlalchemy import insert
 from datetime import datetime
 from circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
+from collections import Counter
+from kafkaClient import get_producer, init_kafka_producer
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,60 @@ def fetch_and_update_db(airports_icao):
     stmt = stmt.prefix_with('IGNORE')
     db.session.execute(stmt)
     db.session.commit()
+    return clean_result
+
+
+def send_to_kafka(results, icao_list, user_email=None):
+    if not results:
+        logger.info("Nessun volo presente in cleanResult da inviare.")
+        return
+    
+    airports = []
+
+    for flight in results:
+        dep = flight.get('estDepartureAirport')
+        arr = flight.get('estArrivalAirport')
+
+        if dep in icao_list:
+            airports.append(dep)
+
+        if arr in icao_list:
+            airports.append(arr)
+
+    airports_count = Counter(airports)
+
+    #recupero dal db
+    if(user_email):
+        interests = AirportsOfInterest.query.filter(
+            AirportsOfInterest.icao.in_(icao_list),
+            AirportsOfInterest.email == user_email
+        ).all()
+    else:
+        interests = AirportsOfInterest.query.filter(
+            AirportsOfInterest.icao.in_(icao_list)
+        ).all()
+    
+    #INVIO A KAFKA
+    producer = get_producer()
+
+    if not producer:
+        logger.error("Kafka Producer non disponibile! Impossibile inviare statistiche.")
+        return
+
+    topic_name = 'to-alert-system' 
+
+    #Costruiamo il messaggio JSON
+    interests_data = [i.to_dict() for i in interests]
+
+    payload = {
+        "airports_count": airports_count,
+        "interests": interests_data
+    }
+
+    # Invio al broker
+    producer.send(topic_name, value=json.dumps(payload))
+
+    logger.info("Invio statistiche totali completato.")
 
 @scheduler.task('interval', id='update_db', hours=24)
 def update_database():
@@ -129,7 +185,9 @@ def update_database():
                 logger.info("--- No airports found in DB. ---")
                 return
             
-            fetch_and_update_db(airports_icao)
+            result = fetch_and_update_db(airports_icao)
+            #send_to_kafka(result)
+
             logger.info("--- Update done. ---")
 
         except CircuitBreakerOpenException:

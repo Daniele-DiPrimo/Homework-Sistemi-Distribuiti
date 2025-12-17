@@ -41,3 +41,13 @@ class AirportsOfInterest(db.Model):
         db.UniqueConstraint('email', 'icao', name='unique_email_icao'),
         db.CheckConstraint('high_value > low_value', name='check_high_gt_low'),
     )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "icao": self.icao,
+            "email": self.email,
+            "icao": self.icao,
+            "high_value": self.high_value,
+            "low_value": self.low_value
+        }
