@@ -5,6 +5,15 @@ services:
     container_name: broker-kafka
     ports:
       - "9092:9092"
+    
+    healthcheck:
+      # Questo comando controlla se Kafka è davvero pronto a rispondere
+      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
     environment:
       # --- Configurazione KRaft ---
       KAFKA_NODE_ID: 1
@@ -51,12 +60,25 @@ services:
     networks:
       - kafka-network
       
-  alert_system:
+  alert-system:
     build: ./alert_system
-    container_name: alert_system
+    container_name: alert-system
     networks:
       - kafka-network
     restart: always
+    depends_on:
+      broker-kafka: 
+        condition: service_healthy
+
+  alert-notifier-system:
+    build: ./alert_notifier_system
+    container_name: alert-notifier-system
+    networks:
+      - kafka-network
+    restart: always
+    depends_on:
+      broker-kafka:
+        condition: service_healthy
 
   api_gateway:
     image: nginx:latest
@@ -91,8 +113,8 @@ services:
       - MARIADB_ROOT_PASSWORD=${FLIGHTSDB_ROOT_PASSWORD}
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 3s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
       start_period: 120s
     networks:
@@ -165,8 +187,8 @@ services:
       - "${USER_DB_HOST_PORT}:${USER_DB_PORT}"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 3s
-      timeout: 3s
+      interval: 10s
+      timeout: 5s
       retries: 5
       start_period: 120s
     networks:

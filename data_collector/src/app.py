@@ -222,15 +222,15 @@ def add_airports_of_interest():
     try:
         icao_list = [airport['icao'] for airport in airports]
 
-        result = tasks.fetch_data(icao_list)
+        for icao in icao_list:
+            result = tasks.fetch_data(icao)
 
-        #update db
-        stmt = insert(Flights).values(result)
-        stmt = stmt.prefix_with('IGNORE')
-        extensions.db.session.execute(stmt)
-        extensions.db.session.commit()
-
-        tasks.send_to_kafka(result, icao_list, g.email)
+            stmt = insert(Flights).values(result)
+            stmt = stmt.prefix_with('IGNORE')
+            extensions.db.session.execute(stmt)
+            extensions.db.session.commit()
+            
+            tasks.send_to_kafka(result, icao_list, g.email)
 
         response_body = {"message": "Airports added"}
         cache_packet = { 
