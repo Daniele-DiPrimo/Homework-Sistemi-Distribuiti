@@ -1,9 +1,9 @@
 import os
 from flask import Flask, request, jsonify, g
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy import func
+from sqlalchemy import func, insert
 import requests
-from extensions import db, scheduler
+import extensions
 from models import AirportsOfInterest, Flights
 import tasks
 import grpc
@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 import redis
 import json
 from sqlalchemy import func
-import kafkaClient as p
 from circuit_breaker import CircuitBreakerOpenException
 import logging
+from kafkaClient import KafkaProducer
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,12 @@ db_name = os.getenv('FLIGHTSDB_DATABASE')
 SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db.init_app(app)
+extensions.db.init_app(app)
 
 
 
 with app.app_context():
-    db.create_all()
+    extensions.db.create_all()
 
 #redis setup
 email_check_cache = redis.Redis(
@@ -56,8 +56,8 @@ requests_cache = redis.Redis(
 )
 
 #setup scheduler
-scheduler.init_app(app)
-scheduler.start()
+extensions.scheduler.init_app(app)
+extensions.scheduler.start()
 
 
 #setup grpc channel
@@ -96,8 +96,16 @@ options = [
 channel = grpc.secure_channel(target, creds, options=options)
 stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
 
-#init producer kafka
-producer = p.KafkaProducer(topic='to-alert-system')
+producer_config = {
+    'bootstrap.servers':'broker-kafka:9092',
+    'acks':'all', 
+    'batch.size': 10000, 
+    'max.in.flight.requests.per.connection':1,
+    'retries':3, 
+    'linger.ms':100
+}
+
+extensions.kafka_producer = KafkaProducer(producer_config)
 
 #middleware
 @app.before_request
@@ -179,16 +187,16 @@ def add_airports_of_interest():
     
     try:
         for airport in airports:
-            db.session.add(AirportsOfInterest(
+            extensions.db.session.add(AirportsOfInterest(
                 email=g.email,
                 icao=airport.get('icao'),
                 high_value=airport.get('high_value'),
                 low_value=airport.get('low_value')
             ))
-        db.session.commit()
+        extensions.db.session.commit()
         
     except IntegrityError as e:
-        db.session.rollback()
+        extensions.db.session.rollback()
 
         response_body = {
             "error": "Duplicate entry or constraint violation",
@@ -204,7 +212,7 @@ def add_airports_of_interest():
         return jsonify(response_body), 409
     
     except SQLAlchemyError as e:
-        db.session.rollback()
+        extensions.db.session.rollback()
         
         return jsonify({
             "error": "Database error, cant add the airports", 
@@ -213,8 +221,16 @@ def add_airports_of_interest():
 
     try:
         icao_list = [airport['icao'] for airport in airports]
-        result = tasks.fetch_and_update_db(icao_list)
-        tasks.send_to_kafka(result, icao_list, producer, g.email)
+
+        result = tasks.fetch_data(icao_list)
+
+        #update db
+        stmt = insert(Flights).values(result)
+        stmt = stmt.prefix_with('IGNORE')
+        extensions.db.session.execute(stmt)
+        extensions.db.session.commit()
+
+        tasks.send_to_kafka(result, icao_list, g.email)
 
         response_body = {"message": "Airports added"}
         cache_packet = { 
@@ -258,17 +274,17 @@ def get_latest_flights():
         return jsonify({"message": "Parameter 'airport' missing"}), 400
     
     try:  
-        stmt = db.select(Flights)\
+        stmt = extensions.db.select(Flights)\
         .where(Flights.estDepartureAirport == airport)\
         .order_by(Flights.firstSeen.desc())\
         .limit(1)
-        last_departure = db.session.execute(stmt).scalars().first()
+        last_departure = extensions.db.session.execute(stmt).scalars().first()
 
-        stmt = db.select(Flights)\
+        stmt = extensions.db.select(Flights)\
         .where(Flights.estArrivalAirport == airport)\
         .order_by(Flights.lastSeen.desc())\
         .limit(1)
-        last_arrival = db.session.execute(stmt).scalars().first()
+        last_arrival = extensions.db.session.execute(stmt).scalars().first()
 
         response_body = {
             "last_departure": last_departure.to_dict(),
@@ -309,12 +325,12 @@ def average():
         # il .replace ci consente di partire dalla mezzanotte del giorno limit_date. Senza questo il limit_date aveva l'orario del giorno datetime.now()
         limit_date = (datetime.now() - timedelta(days=numberOfDays)).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        departures_count = db.session.query(func.count(Flights.id)).filter(
+        departures_count = extensions.db.session.query(func.count(Flights.id)).filter(
             Flights.estDepartureAirport == airport,
             Flights.firstSeen >= limit_date
         ).scalar()
 
-        arrivals_count = db.session.query(func.count(Flights.id)).filter(
+        arrivals_count = extensions.db.session.query(func.count(Flights.id)).filter(
             Flights.estArrivalAirport == airport,
             Flights.lastSeen >= limit_date
         ).scalar()

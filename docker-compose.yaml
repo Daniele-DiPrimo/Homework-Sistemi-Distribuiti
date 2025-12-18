@@ -183,11 +183,11 @@ services:
       - "5000"
     healthcheck:
       # Prova a connettersi a localhost:50051. Se riesce, esce con 0 (OK).
-      test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051));\" || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051));\""]
       interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 120s
     environment:
       - PYTHONUNBUFFERED= 1
       - HOST_DB=${HOST_DB}

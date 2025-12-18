@@ -1,4 +1,4 @@
-from extensions import db, scheduler
+import extensions
 import logging
 import requests
 import os
@@ -64,35 +64,32 @@ def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None
     response = requests.get(url, params=payload, headers=headers, timeout=15)
 
     if response.status_code == 404:
-        logger.info(f"Airport not supported or no data available for: {icao}")
         return []
     
     response.raise_for_status()
     return response.json()
 
-def fetch_and_update_db(airports_icao):
+def fetch_data(icao):
     #retrieving token
     token = circuit_breaker.call(get_opensky_token)
-        
-    #retrieving info on flights for specified airports
-    result = []
-    end = int(time.time())
-    begin = end - 86400
 
-    for icao in airports_icao: 
-        try:
-            result += circuit_breaker.call(
-                get_flights_by_airport,
-                icao,
-                begin,
-                end,
-                token,
-                departure=True,
-                arrival=True
-            )
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error during API call for {icao}: {e}")
-            continue
+    #retrieving info on flights for specified airports
+    end = int(time.time())
+    begin = end - 28800
+    result = None
+
+    try:
+        result = circuit_breaker.call(
+            get_flights_by_airport,
+            icao,
+            begin,
+            end,
+            token,
+            departure=True,
+            arrival=True
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error during API call for {icao}: {e}")
 
     if not result:
         raise Exception("No results found.")
@@ -109,17 +106,12 @@ def fetch_and_update_db(airports_icao):
                     
             clean_result.append(flight)
 
-    #save info in flights_db
-    stmt = insert(Flights).values(clean_result)
-    stmt = stmt.prefix_with('IGNORE')
-    db.session.execute(stmt)
-    db.session.commit()
     return clean_result
 
 
-def send_to_kafka(results, icao_list, producer, user_email=None):
+def send_to_kafka(results, icao_list, user_email=None):
     if not results:
-        logger.info("Nessun volo presente in cleanResult da inviare.")
+        logger.info("Nessun volo presente in results da inviare.")
         return
     
     airports = []
@@ -156,27 +148,36 @@ def send_to_kafka(results, icao_list, producer, user_email=None):
     }
 
     # Invio al broker
-    producer.send(payload)
+    extensions.kafka_producer.send('to-alert-system', payload)
 
     logger.info("Invio statistiche totali completato.")
 
-@scheduler.task('interval', id='update_db', hours=24)
+@extensions.scheduler.task('interval', id='update_db', minutes=2)
 def update_database():
-    with scheduler.app.app_context():
+    with extensions.scheduler.app.app_context():
         logger.info("--- Updating database... ---")
         
         try: 
             #read airports from flights_db
-            stmt = db.select(AirportsOfInterest.icao)
-            result = db.session.execute(stmt)
+            stmt = extensions.db.select(AirportsOfInterest.icao)
+            result = extensions.db.session.execute(stmt)
             airports_icao = result.scalars().all()
 
             if not airports_icao:
                 logger.info("--- No airports found in DB. ---")
                 return
             
-            result = fetch_and_update_db(airports_icao)
-            #send_to_kafka(result)
+            for icao in airports_icao:
+                result = fetch_data(icao)
+
+                #update db
+                stmt = insert(Flights).values(result)
+                stmt = stmt.prefix_with('IGNORE')
+                extensions.db.session.execute(stmt)
+                extensions.db.session.commit()
+
+                #send to kafka
+                send_to_kafka(result, airports_icao)
 
             logger.info("--- Update done. ---")
 

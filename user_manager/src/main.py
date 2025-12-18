@@ -28,7 +28,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+    except Exception:
+        pass
 
 redis_client = redis.Redis(
     host=os.getenv('REDIS_HOST', 'user-cache'),
