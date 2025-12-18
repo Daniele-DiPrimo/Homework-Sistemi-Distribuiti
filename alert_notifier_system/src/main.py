@@ -1,8 +1,17 @@
 from confluent_kafka import Consumer, KafkaError
 import json 
 import logging
+import smtplib
+import ssl
+from email.message import EmailMessage
+import os
 
 logging.basicConfig(level=logging.INFO)
+
+SMTP_SERVER = os.getenv('SMTP_SERVER', '')
+SMTP_PORT = int(os.getenv('SMTP_PORT', ''))
+SENDER_EMAIL = os.getenv('SENDER_EMAIL', '')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
 
 consumer_config = {
     'bootstrap.servers': 'broker-kafka:9092',
@@ -21,9 +30,33 @@ message_count = 0
 
 consumer.subscribe([topic])
 
+def send_email(data):
+    msg = EmailMessage()
+    msg['Subject'] = f"NOTIFICATION: flights for/from {data.get('current_icao')} exceeded threshold, {data.get('type')}"
+    msg['From'] = os.getenv('SENDER_EMAIL')
+    msg['To'] = data.get('email')
+    
+    content = f"""
+    The number of flights for/from {data.get('current_icao')} exceeded your threshold.
+    There were {data.get('number_of_flights')} number of flights and your threshold is {data.get('threshold')}.
+    Best regards.
+    """
+    msg.set_content(content)
+
+    context = ssl.create_default_context()
+
+    try:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
+            server.login(SENDER_EMAIL, EMAIL_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
 try:
     logging.info(f"Consumer ALERT-NOTIFIER-SYSTEM. Batch size: {BATCH_SIZE}")
-    logging.info("Waiting for messages...\n")
+    logging.info("Waiting for messages...")
     
     while True:
         # Poll for new messages
@@ -50,8 +83,11 @@ try:
             # Improvement: Commit only AFTER batch processing
             if message_count >= BATCH_SIZE:
                 # First process the batch
-                logging.info(f" message = {received_messages} received, ready to process....")  ##QUI RIMANDA AD UNA FUNZIONE CHE MANDA L'EMAIL CON LE INFO RICEVUTE
-                
+                logging.info(f" message = {received_messages} received, ready to process....")
+
+                for message in received_messages:
+                    send_email(message)
+
                 # Then commit offset (ensures at-least-once semantics)
                 consumer.commit(asynchronous=False)
                 logging.info(f"Committed offset: {msg.offset()}\n")
@@ -67,12 +103,15 @@ try:
             continue
 
 except KeyboardInterrupt:
-    logging.info("\nConsumer interrupted by user.")
+    logging.info("Consumer interrupted by user.")
 finally:
     # Process remaining messages in buffer before shutdown
     if received_messages:
-        logging.info("\nProcessing remaining messages before shutdown...")
-        # send_to_notify_system(received_messages)
+        logging.info("Processing remaining messages before shutdown...")
+
+        for message in received_messages:
+            send_email(message)
+        
         consumer.commit(asynchronous=False)
     
     logging.info("Closing consumer...")

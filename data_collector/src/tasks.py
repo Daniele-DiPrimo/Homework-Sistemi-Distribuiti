@@ -109,7 +109,7 @@ def fetch_data(icao):
     return clean_result
 
 
-def send_to_kafka(results, icao_list, user_email=None):
+def send_to_kafka(results, icao, user_email=None):
     if not results:
         logger.info("Nessun volo presente in results da inviare.")
         return
@@ -120,10 +120,10 @@ def send_to_kafka(results, icao_list, user_email=None):
         dep = flight.get('estDepartureAirport')
         arr = flight.get('estArrivalAirport')
 
-        if dep in icao_list:
+        if dep == icao:
             airports.append(dep)
 
-        if arr in icao_list:
+        if arr == icao:
             airports.append(arr)
 
     airports_count = Counter(airports)
@@ -131,12 +131,12 @@ def send_to_kafka(results, icao_list, user_email=None):
     #recupero dal db
     if(user_email):
         interests = AirportsOfInterest.query.filter(
-            AirportsOfInterest.icao.in_(icao_list),
+            AirportsOfInterest.icao == icao,
             AirportsOfInterest.email == user_email
         ).all()
     else:
         interests = AirportsOfInterest.query.filter(
-            AirportsOfInterest.icao.in_(icao_list)
+            AirportsOfInterest.icao == icao
         ).all()
     
     #Costruiamo il messaggio JSON
@@ -177,7 +177,7 @@ def update_database():
                 extensions.db.session.commit()
 
                 #send to kafka
-                send_to_kafka(result, airports_icao)
+                send_to_kafka(result, icao)
 
             logger.info("--- Update done. ---")
 

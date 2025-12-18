@@ -73,6 +73,11 @@ services:
   alert-notifier-system:
     build: ./alert_notifier_system
     container_name: alert-notifier-system
+    environment:
+      - SMTP_SERVER=${SMTP_SERVER}
+      - SMTP_PORT=${SMTP_PORT}
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
     networks:
       - kafka-network
     restart: always

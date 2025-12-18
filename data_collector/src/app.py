@@ -230,7 +230,7 @@ def add_airports_of_interest():
             extensions.db.session.execute(stmt)
             extensions.db.session.commit()
             
-            tasks.send_to_kafka(result, icao_list, g.email)
+            tasks.send_to_kafka(result, icao, g.email)
 
         response_body = {"message": "Airports added"}
         cache_packet = { 
