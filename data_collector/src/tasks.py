@@ -152,7 +152,7 @@ def send_to_kafka(results, icao_list, user_email=None):
 
     logger.info("Invio statistiche totali completato.")
 
-@extensions.scheduler.task('interval', id='update_db', minutes=2)
+@extensions.scheduler.task('interval', id='update_db', hours=8)
 def update_database():
     with extensions.scheduler.app.app_context():
         logger.info("--- Updating database... ---")

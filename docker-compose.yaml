@@ -50,8 +50,13 @@ services:
       KAFKA_LOG_DIRS: /var/lib/kafka/dat
     networks:
       - kafka-network
-
-
+      
+  alert_system:
+    build: ./alert_system
+    container_name: alert_system
+    networks:
+      - kafka-network
+    restart: always
 
   api_gateway:
     image: nginx:latest
