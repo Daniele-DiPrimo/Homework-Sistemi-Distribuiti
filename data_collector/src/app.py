@@ -287,8 +287,8 @@ def get_latest_flights():
         last_arrival = extensions.db.session.execute(stmt).scalars().first()
 
         response_body = {
-            "last_departure": last_departure.to_dict(),
-            "last_arrival": last_arrival.to_dict()
+            "last_departure": last_departure.to_dict() if last_departure is not None else "No departures for this airport",
+            "last_arrival": last_arrival.to_dict() if last_arrival is not None else "No arrivals for this airport"
         }
 
         cache_packet = { 
@@ -335,25 +335,38 @@ def average():
             Flights.lastSeen >= limit_date
         ).scalar()
 
-        average_departures = departures_count / numberOfDays
-        average_arrivals = arrivals_count / numberOfDays
+        if(departures_count and arrivals_count):
+            average_departures = departures_count / numberOfDays
+            average_arrivals = arrivals_count / numberOfDays
 
-        response_body = {
-            "aeroporto_selezionato": airport,
-            "numero_di_giorni_analizzati": numberOfDays,
-            "numero_partenze": departures_count,
-            "numero_di_arrivi": arrivals_count,
-            "media_giornaliera_voli_in_partenza": round(average_departures, 2),
-            "media_giornaliera_voli_in_arrivo": round(average_arrivals, 2)
-        }
+            response_body = {
+                "aeroporto_selezionato": airport,
+                "numero_di_giorni_analizzati": numberOfDays,
+                "numero_partenze": departures_count,
+                "numero_di_arrivi": arrivals_count,
+                "media_giornaliera_voli_in_partenza": round(average_departures, 2),
+                "media_giornaliera_voli_in_arrivo": round(average_arrivals, 2)
+            }
 
-        cache_packet = { 
-            "body": response_body,
-            "status_code": 200
-        }
+            cache_packet = { 
+                "body": response_body,
+                "status_code": 200
+            }
 
-        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-        return jsonify(response_body), 200
+            requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+            return jsonify(response_body), 200
+        else:
+            response_body = {
+                "message": "No flights available for this airport."
+            }
+
+            cache_packet = { 
+                "body": response_body,
+                "status_code": 404
+            }
+
+            requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+            return jsonify(response_body), 404
 
     except Exception as e:
         return jsonify({

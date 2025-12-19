@@ -8,8 +8,8 @@ import os
 
 logging.basicConfig(level=logging.INFO)
 
-SMTP_SERVER = os.getenv('SMTP_SERVER', '')
-SMTP_PORT = int(os.getenv('SMTP_PORT', ''))
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '465'))
 SENDER_EMAIL = os.getenv('SENDER_EMAIL', '')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
 
@@ -80,7 +80,6 @@ try:
             
             logging.info(f"Received message #{message_count} (batch progress: {message_count}/{BATCH_SIZE})")
             
-            # Improvement: Commit only AFTER batch processing
             if message_count >= BATCH_SIZE:
                 # First process the batch
                 logging.info(f" message = {received_messages} received, ready to process....")
