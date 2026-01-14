@@ -1,3 +1,12 @@
+"""Task e helper per il data collector.
+
+Contiene funzioni per:
+- ottenere token da OpenSky
+- interrogare le API per i voli
+- normalizzare i dati e inserirli nel DB
+- inviare notifiche aggregate a Kafka
+"""
+
 import extensions
 import logging
 import requests
@@ -8,176 +17,160 @@ from models import AirportsOfInterest, Flights
 from sqlalchemy import insert
 from datetime import datetime
 from circuit_breaker import CircuitBreaker, CircuitBreakerOpenException
-from collections import Counter
+import redis
 
 logger = logging.getLogger(__name__)
 
+# Redis cache per i risultati dei voli (ttl in secondi)
+flights_cache = redis.Redis(
+    host=os.getenv('REDIS_HOST', 'data-cache'),
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    db=2,
+    decode_responses=True,
+)
+
+# Circuit breaker per le chiamate esterne
 circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=5)
 
+
 def get_opensky_token():
+    """Recupera un access token da OpenSky usando client credentials.
+
+    I segreti (clientId/clientSecret) sono letti da un file JSON il cui
+    path è fornito tramite la variabile d'ambiente `SECRETS_PATH`.
+    """
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
-    
     secrets_path = os.getenv('SECRETS_PATH', '')
 
     with open(secrets_path, 'r') as f:
         config = json.load(f)
-        
+
     client_id = config['clientId']
     client_secret = config['clientSecret']
 
     payload = {
-        "grant_type": "client_credentials",
-        "client_id": client_id,
-        "client_secret": client_secret
+        'grant_type': 'client_credentials',
+        'client_id': client_id,
+        'client_secret': client_secret,
     }
 
-    # data=payload set header at 'Content-Type: application/x-www-form-urlencoded'
     response = requests.post(url, data=payload, timeout=10)
     response.raise_for_status()
 
     token_data = response.json()
-    access_token = token_data.get("access_token")
-    return access_token
+    return token_data.get('access_token')
+
 
 def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None):
-    departures_url = "https://opensky-network.org/api/flights/departure"
-    arrivals_url = "https://opensky-network.org/api/flights/arrival"
+    """Chiama l'API opensky per ottenere i voli di andata/ritorno per un aeroporto."""
+    departures_url = 'https://opensky-network.org/api/flights/departure'
+    arrivals_url = 'https://opensky-network.org/api/flights/arrival'
 
     if departure and not arrival:
         url = departures_url
-    elif not departure and arrival:
+    elif arrival and not departure:
         url = arrivals_url
     else:
+        # se non specificato, unisco partenze+arrivi
         deps = get_flights_by_airport(icao, begin, end, token, departure=True)
         arrs = get_flights_by_airport(icao, begin, end, token, arrival=True)
         return deps + arrs
 
-    headers = {}
-    headers['Authorization'] = f"Bearer {token}"
+    headers = {'Authorization': f'Bearer {token}'}
+    params = {'airport': icao, 'begin': begin, 'end': end}
 
-    payload = {
-        "airport": icao,
-        "begin": begin,
-        "end": end
-    }
-
-    response = requests.get(url, params=payload, headers=headers, timeout=15)
-
+    response = requests.get(url, params=params, headers=headers, timeout=15)
     if response.status_code == 404:
         return []
-    
     response.raise_for_status()
     return response.json()
 
+
 def fetch_data(icao):
-    #retrieving token
+    """Recupera i voli per `icao`, usando cache e circuit breaker.
+
+    Restituisce una lista di record puliti pronti per essere inseriti nel DB.
+    """
+    cached_data = flights_cache.get(icao)
+    if cached_data:
+        data = json.loads(cached_data)
+        logger.info(f"Cache hit for {icao}. Retrieved {len(data)} flights from cache.")
+        return data
+
+    # Recupero token protetto da circuit breaker
     token = circuit_breaker.call(get_opensky_token)
 
-    #retrieving info on flights for specified airports
     end = int(time.time())
-    begin = end - 28800
+    begin = end - 28800  # 8 ore
     result = None
 
     try:
-        result = circuit_breaker.call(
-            get_flights_by_airport,
-            icao,
-            begin,
-            end,
-            token,
-            departure=True,
-            arrival=True
-        )
+        result = circuit_breaker.call(get_flights_by_airport, icao, begin, end, token, departure=True, arrival=True)
+        flights_cache.setex(icao, 28800, json.dumps(result))
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during API call for {icao}: {e}")
 
     if not result:
         raise Exception("No results found.")
 
-    #cleaning and filtering results
+    # Filtra e normalizza i risultati: manteniamo solo le colonne usate dal modello Flights
     clean_result = []
-
     for r in result:
         if r.get('estDepartureAirport') and r.get('estArrivalAirport'):
             flight = {k: v for k, v in r.items() if k in Flights.__table__.columns.keys()}
-                
-            flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen']) 
+            # converte i timestamp in datetime
+            flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen'])
             flight['lastSeen'] = datetime.fromtimestamp(flight['lastSeen'])
-                    
             clean_result.append(flight)
 
     return clean_result
 
 
-def send_to_kafka(results, icao, user_email=None):
-    if not results:
-        logger.info("Nessun volo presente in results da inviare.")
+def send_to_kafka(message, email):
+    """Invia la lista di interessi aggregati al topic `to-alert-system`."""
+    if not message:
+        logger.info("No flights to send.")
         return
-    
-    airports = []
 
-    for flight in results:
-        dep = flight.get('estDepartureAirport')
-        arr = flight.get('estArrivalAirport')
-
-        if dep == icao:
-            airports.append(dep)
-
-        if arr == icao:
-            airports.append(arr)
-
-    airports_count = Counter(airports)
-
-    #recupero dal db
-    if(user_email):
-        interests = AirportsOfInterest.query.filter(
-            AirportsOfInterest.icao == icao,
-            AirportsOfInterest.email == user_email
-        ).all()
-    else:
-        interests = AirportsOfInterest.query.filter(
-            AirportsOfInterest.icao == icao
-        ).all()
-    
-    #Costruiamo il messaggio JSON
-    interests_data = [i.to_dict() for i in interests]
-
-    payload = {
-        "airports_count": airports_count,
-        "interests": interests_data
-    }
-
-    # Invio al broker
+    payload = {'email': email, 'interests': message}
     extensions.kafka_producer.send('to-alert-system', payload)
+    logger.info("Sent aggregated statistics to Kafka.")
 
-    logger.info("Invio statistiche totali completato.")
 
 @extensions.scheduler.task('interval', id='update_db', hours=8)
 def update_database():
+    """Task schedulato che aggiorna il DB e invia statistiche per ogni utente."""
     with extensions.scheduler.app.app_context():
         logger.info("--- Updating database... ---")
-        
-        try: 
-            #read airports from flights_db
-            stmt = extensions.db.select(AirportsOfInterest.icao)
+        try:
+            stmt = extensions.db.select(AirportsOfInterest)
             result = extensions.db.session.execute(stmt)
-            airports_icao = result.scalars().all()
+            interests = result.scalars().all()
+            interests = [i.to_dict() for i in interests]
 
-            if not airports_icao:
-                logger.info("--- No airports found in DB. ---")
+            if not interests:
+                logger.info("--- No interests found in DB. ---")
                 return
-            
-            for icao in airports_icao:
-                result = fetch_data(icao)
 
-                #update db
-                stmt = insert(Flights).values(result)
-                stmt = stmt.prefix_with('IGNORE')
-                extensions.db.session.execute(stmt)
-                extensions.db.session.commit()
+            users = list({i.get('email') for i in interests})
+            for user in users:
+                user_interests = [i for i in interests if i['email'] == user]
+                for interest in user_interests:
+                    result = fetch_data(interest['icao'])
 
-                #send to kafka
-                send_to_kafka(result, icao)
+                    # aggiorna DB con nuovi voli (IGNORE per evitare duplicati)
+                    stmt = insert(Flights).values(result)
+                    stmt = stmt.prefix_with('IGNORE')
+                    extensions.db.session.execute(stmt)
+                    extensions.db.session.commit()
+
+                    interest['flights_count'] = len(result)
+
+                # rimuovo l'email prima di inviare a Kafka
+                for ui in user_interests:
+                    ui.pop('email', None)
+
+                send_to_kafka(user_interests, user)
 
             logger.info("--- Update done. ---")
 

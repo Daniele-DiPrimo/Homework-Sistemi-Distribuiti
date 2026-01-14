@@ -1,13 +1,22 @@
-from flask import Flask, request, jsonify 
-import grpc 
-from concurrent import futures 
-import sys #serve per importare i file pb2 dalla cartella grpc_generated
+"""User Manager microservice
+
+Espone API REST per registrare/eliminare utenti e un server gRPC per
+verificare l'esistenza di un utente (usato da altri servizi).
+"""
+
+from flask import Flask, request, jsonify
+import grpc
+from concurrent import futures
+import sys
 import os
-import threading 
-import json 
+import threading
+import json
 import redis
+import logging
 from extensions import db
 from user import User
+
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2
@@ -15,7 +24,7 @@ import user_service_pb2_grpc
 
 app = Flask(__name__)
 
-#setup database
+# --- Database setup ---
 db_user = os.getenv('USER_DB')
 db_password = os.getenv('PASSWORD_DB')
 db_host = os.getenv('HOST_DB')
@@ -33,162 +42,112 @@ with app.app_context():
     except Exception:
         pass
 
+# Redis per idempotenza delle API
 redis_client = redis.Redis(
     host=os.getenv('REDIS_HOST', 'user-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
-    db = 0,
-    decode_responses = True    #converte tutti i dati all'interno della cache redis in stringhe 
+    db=0,
+    decode_responses=True,
 )
 
-class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer): 
-    def CheckUserExists(self, request, context): 
+
+class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer):
+    def CheckUserExists(self, request, context):
+        """gRPC handler: verifica l'esistenza di un'email nel DB."""
         email = request.email
-        print(f"Controllo se esiste {email} nel DB")
+        logger.info(f"Checking existence of {email} in DB")
+        with app.app_context():
+            exists = User.user_exist(email)
 
-        with app.app_context():    
-            esiste = User.user_exist(email) 
+        if exists:
+            return user_service_pb2.UserCheckResponse(status=0, message="UTENTE TROVATO")
+        else:
+            return user_service_pb2.UserCheckResponse(status=1, message="UTENTE NON TROVATO")
 
-        print("eseguito!!")
 
-        if esiste:
-            return user_service_pb2.UserCheckResponse(status = 0 , message = "UTENTE TROVATO")
-        else: 
-            return user_service_pb2.UserCheckResponse(status = 1, message = "UTENTE NON TROVATO")
-        
-
-def run_grpc_server(): 
+def run_grpc_server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-
     user_service_pb2_grpc.add_CheckUserServiceServicer_to_server(CheckUserHandler(), server)
-
-    server.add_insecure_port('[::]:50051')  
-    print("gRPC Server in ascolto sulla porta 50051...")
+    server.add_insecure_port('[::]:50051')
+    logger.info("gRPC Server listening on port 50051")
     server.start()
     server.wait_for_termination()
 
-@app.route('/register', methods = ['POST'])
-def register_user(): 
-    # prima della logica di business controllo sulla cache di redis se la richiesta è già stata gestita
 
+@app.route('/register', methods=['POST'])
+def register_user():
+    """Registra un nuovo utente. Applica idempotenza tramite Redis."""
     request_id = request.headers.get('X-Request-ID')
     client_id = request.headers.get('X-Client-ID')
-
     if not request_id or not client_id:
-        return jsonify({"error": "X-REQUEST-ID/X-ClientID mancante nell'header della richiesta HTTP."}), 400   
+        return jsonify({"error": "X-REQUEST-ID/X-ClientID mancante nell'header della richiesta HTTP."}), 400
 
-    
-    #la chiave cache sarà formata dalla concatenazione di client_id - nome del servizio - request_id
     cache_key = f"{client_id}:register:{request_id}"
-    
     cached_data = redis_client.get(cache_key)
-
-    #esiste la corrispondenza, richiesta già gestita
     if cached_data:
-        print(f"Risposta presente nella cache. Cache Data: {cached_data}, cachekey{cache_key}")
+        logger.info(f"Cache hit for register: {cache_key}")
         response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']
-    
-    # non esiste una corrispondenza, la richiesta è inviata per la prima volta, quindi passo alla logica di business
-    data = request.get_json()
 
-    if not data or 'email' not in data: 
-        return jsonify({"errore" : "EMAIL NON INSERITA"}), 400
-    
+    data = request.get_json() or {}
+    if not data or 'email' not in data:
+        return jsonify({"errore": "EMAIL NON INSERITA"}), 400
+
     email = data['email']
-    nome = data['nome']
-    cognome = data['cognome']
-    print(f"TENTATIVO DI REGISTRAZIONE PER {email} --> {nome} {cognome}")
+    nome = data.get('nome')
+    cognome = data.get('cognome')
+    logger.info(f"Attempting registration for {email} -> {nome} {cognome}")
 
     success = User.add_user(email, nome, cognome)
-
-    if success:        
-        response_body = {              
-            "message": "Utente registrato con successo",
-            "email_request": email,  
-            "status": True            
-        }
+    if success:
+        response_body = {"message": "Utente registrato con successo", "email_request": email, "status": True}
         status_code = 201
-
     else:
-        response_body = {              
-            "message": "Utente già registrato, email presente in archivio.",
-            "email_request": email,  
-            "status": False            
-        }
+        response_body = {"message": "Utente già registrato, email presente in archivio.", "email_request": email, "status": False}
         status_code = 409
 
-    cache_packet = {
-        "body": response_body,
-        "status_code": status_code,
-    }
-    redis_client.setex(cache_key, 3600, json.dumps(cache_packet))  #3600 --> la cache di redis terrà i dati per 1 ora
-
+    cache_packet = {"body": response_body, "status_code": status_code}
+    redis_client.setex(cache_key, 3600, json.dumps(cache_packet))
     return jsonify(response_body), status_code
 
 
-@app.route('/delete', methods = ['POST'])
+@app.route('/delete', methods=['POST'])
 def delete_user():
-
-    #applico l'AT-MOST-ONCE anche in delete_user() --> l'idea è quella di conservare i dati nella cache per meno tempo rispetto alla registrazione --> L'Idempotenza in register è più restrittiva, se arriva
-    #una richiesta duplicata l'accesso al db è critico. Per la delete, invece, è meno critico. Quindi, se avviene una richiesta duplicata ( magari si è perso il messaggio di ritorno e l'utente non sa se l'operazione è andata a buon fine)
-    #ritorno lo stato salvato nella cache. Dopo qualche minuto cancello i dati nella cache e se arriva un duplicato torno il jsonify con body "email non presente in archivio". 
-
+    """Elimina un utente. Usa cache con TTL breve per AT-MOST-ONCE."""
     request_id = request.headers.get('X-Request-ID')
     client_id = request.headers.get('X-Client-ID')
-
     if not request_id or not client_id:
-        return jsonify({"error": "X-REQUEST-ID/X-Client-ID mancante nell'header della richiesta HTTP."}), 400 
+        return jsonify({"error": "X-REQUEST-ID/X-Client-ID mancante nell'header della richiesta HTTP."}), 400
 
     cache_key = f"{client_id}:delete:{request_id}"
     cached_data = redis_client.get(cache_key)
-
     if cached_data:
-        print(f"Risposta presente nella cache. Cache Data: {cached_data}, CacheKey {request_id}")
+        logger.info(f"Cache hit for delete: {cache_key}")
         response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']
-    
-    data = request.get_json()
 
-    if not data or 'email' not in data: 
-        return jsonify({"errore" : "email non inserita. Perfavore inserisci email"})
+    data = request.get_json() or {}
+    if 'email' not in data:
+        return jsonify({"errore": "email non inserita. Perfavore inserisci email"}), 400
 
     email = data['email']
     success = User.delete_user(email)
-
-    if success: 
-        response_body = {              
-            "message": "utente correttamente eliminato dall'archivio",
-            "email_request": email,  
-            "status": True            
-        }
+    if success:
+        response_body = {"message": "utente correttamente eliminato dall'archivio", "email_request": email, "status": True}
         status_code = 200
-
     else:
-        response_body = {              
-            "message": "utente non presente in archivio",
-            "email_request": email,  
-            "status": True            
-        }
+        response_body = {"message": "utente non presente in archivio", "email_request": email, "status": False}
         status_code = 404
-    
-    cache_packet = {
-        "body": response_body,
-        "status_code": status_code
-    }
 
+    cache_packet = {"body": response_body, "status_code": status_code}
     redis_client.setex(cache_key, 180, json.dumps(cache_packet))
-
     return jsonify(response_body), status_code
 
 
-
 if __name__ == '__main__':
-    
-    """utilizzo un thread per il server grpc in modo tale che quando viene eseguita
-    wait_for_termination() non viene bloccato il main thread che gestisce le api request"""
+    # Avvio del server gRPC in thread separato per non bloccare Flask
     grpc_thread = threading.Thread(target=run_grpc_server, daemon=True)
     grpc_thread.start()
 
-    print("REST Server in ascolto sulla porta 5000...")
-    app.run(host='0.0.0.0', port=5000, debug=False)
-
+    logger.info("REST Server listening on port 5000")
+    app.run(host='0.0.0.0', port=5000, debug=False)          

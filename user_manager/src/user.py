@@ -1,5 +1,11 @@
+"""Model `User` con helper per CRUD elementari."""
+
 from extensions import db
 from sqlalchemy.exc import IntegrityError
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -10,47 +16,42 @@ class User(db.Model):
 
     @classmethod
     def user_exist(cls, email):
+        """Restituisce True se l'email è già presente nel DB."""
         return cls.query.filter_by(email=email).first() is not None
 
     @classmethod
     def add_user(cls, email, nome, cognome):
+        """Aggiunge un nuovo utente. Ritorna True se inserito correttamente."""
         try:
-            # Creiamo l'oggetto (istanza della classe corrente)
             new_user = cls(email=email, nome=nome, cognome=cognome)
-            
             db.session.add(new_user)
             db.session.commit()
-            
-            print("UTENTE CORRETTAMENTE INSERITO NELLA TABELLA")
+            logger.info("User successfully inserted")
             return True
-
         except IntegrityError:
             db.session.rollback()
-            print("Utente duplicato (IntegrityError)")
+            logger.warning("Duplicate user (IntegrityError)")
             return False
-
         except Exception as e:
             db.session.rollback()
-            print(f"Errore sconosciuto SQL: {e}")
+            logger.error(f"Unknown SQL error: {e}")
             return False
 
     @classmethod
     def delete_user(cls, email):
+        """Elimina l'utente corrispondente all'email, se presente."""
         try:
-            print("CONTROLLO ED ELIMINAZIONE UTENTE...")
-            
+            logger.info("Checking and deleting user...")
             user_to_delete = cls.query.filter_by(email=email).first()
-            
             if user_to_delete:
                 db.session.delete(user_to_delete)
                 db.session.commit()
-                print("UTENTE CORRETTAMENTE ELIMINATO DALLA TABELLA")
+                logger.info("User deleted from table")
                 return True
             else:
-                print(f"Nessun utente trovato per email: {email}")
+                logger.info(f"No user found for email: {email}")
                 return False
-
         except Exception as e:
             db.session.rollback()
-            print(f"Errore durante l'eliminazione: {e}")
+            logger.error(f"Error during deletion: {e}")
             return False
