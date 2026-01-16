@@ -86,18 +86,23 @@ services:
         condition: service_healthy
 
   api_gateway:
-    image: nginx:latest
+    build: ./api_gateway
     container_name: api_gateway
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      # Montiamo il file di config nella cartella di default di NGINX
-      - ./api_gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # Montiamo il file di config del load_balancer
+      # Configurazione NGINX principale
+      # ATTENZIONE: In OpenResty il file principale è solitamente qui:
+      - ./api_gateway/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      # Config Load Balancer (se incluso nel nginx.conf)
       - ./api_gateway/load_balancer.conf:/etc/nginx/conf.d/load_balancer.conf:ro
-      # Montiamo la cartella coi certificati
+      # Certificati SSL
       - ./api_gateway/SSL:/etc/nginx/ssl:ro
+      # Public Key per JWT
+      - ./api_gateway/public_key.pem:/etc/nginx/keys/public.pem:ro
+      # Lo script Lua per validare i token!
+      - ./api_gateway/jwt_validator.lua:/etc/nginx/lua/jwt_validator.lua:ro
     depends_on:
       user-manager:
         condition: service_healthy
@@ -204,10 +209,7 @@ services:
 
   user-manager:
     build: ./user_manager
-    deploy:
-      replicas: 3
-      restart_policy:
-        condition: on-failure
+    container_name: user-manager
     restart: always
     #ports:
     #  - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"

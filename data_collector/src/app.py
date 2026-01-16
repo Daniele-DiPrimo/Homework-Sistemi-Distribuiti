@@ -87,24 +87,9 @@ service_config = """{
     }]
 }"""
 
-cert_path = os.getenv('SSL_CERT_FILE', '')
-try:
-    with open(cert_path, 'rb') as f:
-        trusted_certs = f.read()
-except FileNotFoundError:
-    logger.error("Critical error: SSL certificate not found. Cannot establish gRPC channel.")
-    exit(1)
-
-creds = grpc.ssl_channel_credentials(root_certificates=trusted_certs)
-target = 'api_gateway:443'
-options = [
-    ('grpc.service_config', service_config),
-    ('grpc.ssl_target_name_override', 'localhost'),
-]
-
-channel = grpc.secure_channel(target, creds, options=options)
+options = [('grpc.service_config', service_config)]
+channel = grpc.insecure_channel('user-manager:50051', options=options)
 stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
-
 
 # --- Kafka producer wrapper (confluent-kafka) ---
 producer_config = {

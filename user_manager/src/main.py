@@ -86,7 +86,7 @@ def run_grpc_server():
     server.start()
     server.wait_for_termination()
 
-@app.route('/login', methods=['POST'])
+@app.route('/auth/login', methods=['POST'])
 def login_user():
     """Effettua il login di un utente."""
 
@@ -130,15 +130,14 @@ def login_user():
     redis_client.setex(cache_key, 180, json.dumps(cache_packet))
     return jsonify(response_body), status_code
 
-@app.route('/register', methods=['POST'])
+@app.route('/auth/register', methods=['POST'])
 def register_user():
     """Registra un nuovo utente. Applica idempotenza tramite Redis."""
     request_id = request.headers.get('X-Request-ID')
-    client_id = request.headers.get('X-Client-ID')
-    if not request_id or not client_id:
-        return jsonify({"error": "X-REQUEST-ID/X-ClientID missing in header"}), 400
+    if not request_id:
+        return jsonify({"error": "X-REQUEST-ID missing in header"}), 400
 
-    cache_key = f"{client_id}:register:{request_id}"
+    cache_key = f"register:{request_id}"
     cached_data = redis_client.get(cache_key)
     if cached_data:
         logger.info(f"Cache hit for register: {cache_key}")
@@ -167,13 +166,15 @@ def register_user():
     return jsonify(response_body), status_code
 
 
-@app.route('/delete', methods=['POST'])
+@app.route('/users/delete', methods=['POST'])
 def delete_user():
     """Elimina un utente. Usa cache con TTL breve per AT-MOST-ONCE."""
+    email = request.headers.get('X-User-Email')
     request_id = request.headers.get('X-Request-ID')
     client_id = request.headers.get('X-Client-ID')
-    if not request_id or not client_id:
-        return jsonify({"error": "X-REQUEST-ID/X-Client-ID mancante nell'header della richiesta HTTP."}), 400
+
+    if not request_id or not client_id or not email:
+        return jsonify({"error": "X-REQUEST-ID/X-Client-ID/X-User-Email mancante nell'header della richiesta HTTP."}), 400
 
     cache_key = f"{client_id}:delete:{request_id}"
     cached_data = redis_client.get(cache_key)
@@ -182,11 +183,6 @@ def delete_user():
         response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']
 
-    data = request.get_json() or {}
-    if 'email' not in data:
-        return jsonify({"errore": "email non inserita. Perfavore inserisci email"}), 400
-
-    email = data['email']
     success = User.delete_user(email)
     if success:
         response_body = {"message": "utente correttamente eliminato dall'archivio", "email_request": email, "status": True}
