@@ -4,6 +4,7 @@ Espone API REST per registrare/eliminare utenti e un server gRPC per
 verificare l'esistenza di un utente (usato da altri servizi).
 """
 
+from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify
 import grpc
 from concurrent import futures
@@ -15,6 +16,18 @@ import redis
 import logging
 from extensions import db
 from user import User
+import jwt
+import uuid
+
+# Upload private key for JWT signature
+key_path = os.getenv('JWT_PRIVATEKEY_SECRET_PATH', '')
+
+try:
+    with open(key_path, 'rb') as f:
+        PRIVATE_KEY = f.read()
+except FileNotFoundError:
+    logging.critical(f"ERRORE FATALE: Impossibile trovare la chiave privata")
+    sys.exit(1)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +86,49 @@ def run_grpc_server():
     server.start()
     server.wait_for_termination()
 
+@app.route('/login', methods=['POST'])
+def login_user():
+    """Effettua il login di un utente."""
+
+    request_id = request.headers.get('X-Request-ID')
+    
+    if not request_id:
+        return jsonify({"error": "X-REQUEST-ID missing in header"}), 400
+    
+    cache_key = f"login:{request_id}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        response_json = json.loads(cached_data)
+        return jsonify(response_json['body']), response_json['status_code']
+    
+    data = request.get_json() or {}
+    if not data or 'email' not in data:
+        return jsonify({"error": "Missing email"}), 400
+
+    email = data['email']
+
+    user = User.user_exist(email)
+    if user:
+        now_utc = datetime.now(timezone.utc)
+        
+        # Creazione e firma del JWT
+        payload = {
+            'sub': email,
+            'client_id': str(uuid.uuid4()),
+            'iat': now_utc,
+            'exp': now_utc + timedelta(minutes=10)
+        }
+        token = jwt.encode(payload, PRIVATE_KEY, algorithm="RS256")
+
+        response_body = {"access_token": token, "token_type": "Bearer", "expires_in": "10m"}
+        status_code = 200
+    else:
+        response_body = {"error": "Invalid credentials"}
+        status_code = 401
+
+    cache_packet = {"body": response_body, "status_code": status_code}
+    redis_client.setex(cache_key, 180, json.dumps(cache_packet))
+    return jsonify(response_body), status_code
 
 @app.route('/register', methods=['POST'])
 def register_user():
@@ -80,7 +136,7 @@ def register_user():
     request_id = request.headers.get('X-Request-ID')
     client_id = request.headers.get('X-Client-ID')
     if not request_id or not client_id:
-        return jsonify({"error": "X-REQUEST-ID/X-ClientID mancante nell'header della richiesta HTTP."}), 400
+        return jsonify({"error": "X-REQUEST-ID/X-ClientID missing in header"}), 400
 
     cache_key = f"{client_id}:register:{request_id}"
     cached_data = redis_client.get(cache_key)

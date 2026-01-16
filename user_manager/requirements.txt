@@ -4,3 +4,5 @@ flask
 flask-sqlalchemy
 pymysql
 redis
+PyJWT
+cryptography

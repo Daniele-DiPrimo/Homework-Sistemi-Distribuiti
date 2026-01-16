@@ -148,7 +148,7 @@ services:
       - FLIGHTSDB_USER=${FLIGHTSDB_USER}
       - FLIGHTSDB_PASSWORD=${FLIGHTSDB_PASSWORD}
       - FLIGHTSDB_HOST=${FLIGHTSDB_HOST}
-      - SECRETS_PATH=${SECRETS_PATH}
+      - OPENSKY_SECRET_PATH=${OPENSKY_SECRET_PATH}
       - REDIST_HOST=${DATA_REDIS_HOST}
       - REDIST_PORT=${REDIS_PORT}
     secrets:
@@ -229,6 +229,9 @@ services:
       - USER_DB_PORT=${USER_DB_PORT}
       - REDIST_HOST=${USER_REDIS_HOST}
       - REDIST_PORT=${REDIS_PORT}
+      - JWT_PRIVATEKEY_SECRET_PATH=${JWT_PRIVATEKEY_SECRET_PATH}
+    secrets:
+      - jwt_privatekey_secret
     depends_on:
       user-db:
           condition: service_healthy
@@ -267,3 +270,5 @@ networks:
 secrets:
   opensky_secrets:
     file: "./data_collector/credentials.json"
+  jwt_privatekey_secret:
+    file: "./user_manager/private_key.pem"

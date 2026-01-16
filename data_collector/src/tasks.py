@@ -7,6 +7,7 @@ Contiene funzioni per:
 - inviare notifiche aggregate a Kafka
 """
 
+import sys
 import extensions
 import logging
 import requests
@@ -40,10 +41,14 @@ def get_opensky_token():
     path è fornito tramite la variabile d'ambiente `SECRETS_PATH`.
     """
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
-    secrets_path = os.getenv('SECRETS_PATH', '')
+    secrets_path = os.getenv('OPENSKY_SECRET_PATH', '')
 
-    with open(secrets_path, 'r') as f:
-        config = json.load(f)
+    try:
+        with open(secrets_path, 'r') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        logging.critical(f"ERRORE FATALE: Impossibile trovare il secret di opnesky")
+        sys.exit(1)
 
     client_id = config['clientId']
     client_secret = config['clientSecret']
