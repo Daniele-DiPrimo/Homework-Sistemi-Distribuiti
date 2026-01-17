@@ -1,5 +1,6 @@
--- Carichiamo la libreria JWT (deve essere installata nel container)
+-- Carichiamo la libreria JWT e Redis(devono essere installata nel container)
 local jwt = require "resty.jwt"
+local redis = require "resty.redis" 
 
 -- 1. RECUPERO HEADER
 local auth_header = ngx.var.http_Authorization
@@ -34,7 +35,49 @@ if not jwt_obj.verified then
     ngx.exit(401)
 end
 
--- 4. INIEZIONE DATI (HEADER INJECTION)
+-- ============================================================
+-- 4. CONTROLLO BLACKLIST SU REDIS (DB 1)
+-- ============================================================
+-- Prendiamo il client-id dal token, contenuta nel campo sub --> codice che identifica univocamente lo user (sarebbe più uno user-id ma l'abbiamo chiamato in quel modo)
+local client_id = jwt_obj.payload.client_id
+
+if client_id then
+    -- Inizializza
+    local red = redis:new()
+    red:set_timeout(1000) -- 1 secondo timeout
+
+    -- Connetti al container (assicurati che il nome host sia quello del docker-compose)
+    -- Nel tuo caso sembra tu usi "data-cache" nelle variabili d'ambiente Python,
+    -- verifica se il service name nel docker-compose è "data-cache" o "redis_db".
+    -- Qui metto "data-cache" ipotizzando sia quello il nome del container.
+    local ok, err = red:connect("user-cache", 6379)
+
+    if not ok then
+        -- Se Redis è giù, stampiamo errore ma lasciamo passare (Fail Open) per non bloccare tutto
+        ngx.log(ngx.ERR, "impossibile connettersi a redis: ", err)
+    else
+        -- SELEZIONIAMO IL DB 2
+        local res, err = red:select(1)
+        
+        if not res then
+            ngx.log(ngx.ERR, "impossibile selezionare db 2: ", err)
+        else
+            -- Verifichiamo la chiave
+            local exists, err = red:exists("blacklist:" .. client_id)
+
+            if exists == 1 then
+                ngx.status = 401
+                ngx.say('{"error": "Il token non è più valido"}')
+                ngx.exit(401)
+            end
+        end
+
+        -- Rilascia connessione nel pool (IMPORTANTE)
+        red:set_keepalive(10000, 100)
+    end
+end
+
+-- 5. INIEZIONE DATI (HEADER INJECTION)
 -- Prendiamo i dati dal payload del token e li mettiamo negli header HTTP
 -- per i microservizi successivi.
 

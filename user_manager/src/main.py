@@ -63,6 +63,12 @@ redis_client = redis.Redis(
     decode_responses=True,
 )
 
+black_list = redis.Redis(
+    host=os.getenv('REDIS_HOST', 'user-cache'),
+    port=int(os.getenv('REDIS_PORT', 6379)),
+    db=1,
+    decode_responses=True,
+)
 
 class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer):
     def CheckUserExists(self, request, context):
@@ -178,12 +184,14 @@ def delete_user():
 
     cache_key = f"{client_id}:delete:{request_id}"
     cached_data = redis_client.get(cache_key)
+
     if cached_data:
         logger.info(f"Cache hit for delete: {cache_key}")
         response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']
 
     success = User.delete_user(email)
+
     if success:
         response_body = {"message": "utente correttamente eliminato dall'archivio", "email_request": email, "status": True}
         status_code = 200
@@ -193,6 +201,9 @@ def delete_user():
 
     cache_packet = {"body": response_body, "status_code": status_code}
     redis_client.setex(cache_key, 180, json.dumps(cache_packet))
+
+    black_list.set(f"blacklist:{client_id}", "true", ex=900)
+
     return jsonify(response_body), status_code
 
 

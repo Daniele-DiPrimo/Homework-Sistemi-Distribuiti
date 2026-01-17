@@ -7,7 +7,7 @@ FROM openresty/openresty:alpine
 RUN apk add --no-cache perl curl sed
 
 # 2. Installiamo la libreria JWT (quella che crasha)
-RUN opm get SkyLothar/lua-resty-jwt
+RUN opm get SkyLothar/lua-resty-jwt/lua-resty-redis
 
 # 3. LA FIX "CHIRURGICA" PER OPENSSL 3
 # Sostituiamo nel codice sorgente della libreria le chiamate vecchie con quelle nuove

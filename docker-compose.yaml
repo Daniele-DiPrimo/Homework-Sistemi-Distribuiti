@@ -255,6 +255,7 @@ services:
     restart: always
     networks:
       - user-network
+      - gateway-network #black_list redis
     ports:
       - "${USER_REDIS_HOST_PORT}:${REDIS_PORT}"
 
