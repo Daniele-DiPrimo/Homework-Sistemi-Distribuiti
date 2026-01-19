@@ -10,11 +10,12 @@ from confluent_kafka import Consumer, KafkaError, Producer
 import json
 import logging
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Consumer configuration
 consumer_config = {
-    'bootstrap.servers': 'broker-kafka:9092',
+    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
     'group.id': 'group1',
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
@@ -22,7 +23,7 @@ consumer_config = {
 }
 
 producer_config = {
-    'bootstrap.servers': 'broker-kafka:9092',
+    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
     'linger.ms': 100,
 }
 
@@ -50,7 +51,7 @@ def send_to_notify_system(message: dict):
     if not message:
         return
 
-    logging.info("Processing message for notify system")
+    logger.info("Processing message for notify system")
 
     payload = {
         'email': message.get('email'),
@@ -87,40 +88,43 @@ def send_to_notify_system(message: dict):
         producer.poll(0)
 
     except KeyError as e:
-        logging.error(f"Missing key in interest object: {e}")
+        logger.error(f"Missing key in interest object: {e}")
 
 
 def delivery_report(err, msg):
     """Callback per tracciare l'esito della consegna dei messaggi Kafka."""
     if err:
-        logging.error(f"Delivery failed: {err}")
+        logger.error(f"Delivery failed: {err}")
     else:
-        logging.info(f"Message delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
+        logger.info(f"Message delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
 
 
 def main_loop():
-    logging.info(f"Consumer started. Batch size: {BATCH_SIZE}")
-    logging.info("Waiting for messages...")
+    logger.info(f"Consumer started. Batch size: {BATCH_SIZE}")
+    logger.info("Waiting for messages...")
 
     try:
         global message_count, received_messages
         while True:
+            # Poll producer to handle delivery reports
+            producer.poll(0)
+
             msg = consumer.poll(1.0)
             if msg is None:
                 continue
 
             if msg.error():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
-                    logging.debug(f"End of partition {msg.partition()}")
+                    logger.debug(f"End of partition {msg.partition()}")
                 else:
-                    logging.error(f"Consumer error: {msg.error()}")
+                    logger.error(f"Consumer error: {msg.error()}")
                 continue
 
             try:
                 data = json.loads(msg.value().decode('utf-8'))
                 received_messages.append(data)
                 message_count += 1
-                logging.info(f"Received message #{message_count} (batch {message_count}/{BATCH_SIZE})")
+                logger.info(f"Received message #{message_count} (batch {message_count}/{BATCH_SIZE})")
 
                 if message_count >= BATCH_SIZE:
                     for message in received_messages:
@@ -128,28 +132,28 @@ def main_loop():
 
                     # Commit offset to guarantee at-least-once
                     consumer.commit(asynchronous=False)
-                    logging.info(f"Committed offset: {msg.offset()}")
+                    logger.info(f"Committed offset: {msg.offset()}")
 
                     received_messages = []
                     message_count = 0
 
             except (json.JSONDecodeError, KeyError) as e:
-                logging.error(f"Malformed message at offset {msg.offset()}: {e}")
+                logger.error(f"Malformed message at offset {msg.offset()}: {e}")
                 consumer.commit(msg)
                 continue
 
     except KeyboardInterrupt:
-        logging.info("Consumer interrupted by user.")
+        logger.info("Consumer interrupted by user.")
     finally:
         if received_messages:
-            logging.info("Processing remaining messages before shutdown...")
+            logger.info("Processing remaining messages before shutdown...")
             for message in received_messages:
                 send_to_notify_system(message)
 
         consumer.commit(asynchronous=False)
         producer.flush()
         consumer.close()
-        logging.info("Shutdown complete")
+        logger.info("Shutdown complete")
 
 
 if __name__ == '__main__':

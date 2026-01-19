@@ -4,13 +4,13 @@ from typing import ClassVar as _ClassVar, Optional as _Optional
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
-class UserCheckRequest(_message.Message):
+class DeleteUserInterestsRequest(_message.Message):
     __slots__ = ("email",)
     EMAIL_FIELD_NUMBER: _ClassVar[int]
     email: str
     def __init__(self, email: _Optional[str] = ...) -> None: ...
 
-class UserCheckResponse(_message.Message):
+class DeleteUserInterestsResponse(_message.Message):
     __slots__ = ("status", "message")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]

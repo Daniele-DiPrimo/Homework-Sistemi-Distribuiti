@@ -7,10 +7,8 @@ verificare l'esistenza di un utente (usato da altri servizi).
 from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify
 import grpc
-from concurrent import futures
 import sys
 import os
-import threading
 import json
 import redis
 import logging
@@ -19,6 +17,8 @@ from user import User
 import jwt
 import uuid
 
+logger = logging.getLogger(__name__)
+
 # Upload private key for JWT signature
 key_path = os.getenv('JWT_PRIVATEKEY_SECRET_PATH', '')
 
@@ -26,10 +26,8 @@ try:
     with open(key_path, 'rb') as f:
         PRIVATE_KEY = f.read()
 except FileNotFoundError:
-    logging.critical(f"ERRORE FATALE: Impossibile trovare la chiave privata")
-    sys.exit(1)
-
-logger = logging.getLogger(__name__)
+    logger.error(f"ERRORE: Impossibile trovare la chiave privata")
+    PRIVATE_KEY = None
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2
@@ -70,37 +68,37 @@ black_list = redis.Redis(
     decode_responses=True,
 )
 
-class CheckUserHandler(user_service_pb2_grpc.CheckUserServiceServicer):
-    def CheckUserExists(self, request, context):
-        """gRPC handler: verifica l'esistenza di un'email nel DB."""
-        email = request.email
-        logger.info(f"Checking existence of {email} in DB")
-        with app.app_context():
-            exists = User.user_exist(email)
+# --- gRPC client setup for user validation ---
+service_config = """{
+    "methodConfig": [{
+        "name": [{"service": "DeleteUserInterestsService"}],
+        "retryPolicy": {
+            "maxAttempts": 3,
+            "initialBackoff": "0.5s",
+            "maxBackoff": "3s",
+            "backoffMultiplier": 2,
+            "retryableStatusCodes": ["UNAVAILABLE"]
+        },
+        "timeout": "5s"
+    }]
+}"""
 
-        if exists:
-            return user_service_pb2.UserCheckResponse(status=0, message="UTENTE TROVATO")
-        else:
-            return user_service_pb2.UserCheckResponse(status=1, message="UTENTE NON TROVATO")
-
-
-def run_grpc_server():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    user_service_pb2_grpc.add_CheckUserServiceServicer_to_server(CheckUserHandler(), server)
-    server.add_insecure_port('[::]:50051')
-    logger.info("gRPC Server listening on port 50051")
-    server.start()
-    server.wait_for_termination()
+options = [('grpc.service_config', service_config)]
+channel = grpc.insecure_channel('data-collector:50051', options=options)
+stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 
 @app.route('/auth/login', methods=['POST'])
 def login_user():
     """Effettua il login di un utente."""
-
     request_id = request.headers.get('X-Request-ID')
     
     if not request_id:
         return jsonify({"error": "X-REQUEST-ID missing in header"}), 400
-    
+
+    if not PRIVATE_KEY:
+        logger.error("Private key not available.")
+        return jsonify({"error": "Server error"}), 500
+
     cache_key = f"login:{request_id}"
     cached_data = redis_client.get(cache_key)
     if cached_data:
@@ -108,12 +106,13 @@ def login_user():
         return jsonify(response_json['body']), response_json['status_code']
     
     data = request.get_json() or {}
-    if not data or 'email' not in data:
-        return jsonify({"error": "Missing email"}), 400
+    if not data or 'email' not in data or 'password' not in data:
+        return jsonify({"error": "Missing email or password"}), 400
 
     email = data['email']
+    password = data['password']
 
-    user = User.user_exist(email)
+    user = User.login(email, password)
     if user:
         now_utc = datetime.now(timezone.utc)
         
@@ -151,15 +150,16 @@ def register_user():
         return jsonify(response_json['body']), response_json['status_code']
 
     data = request.get_json() or {}
-    if not data or 'email' not in data:
-        return jsonify({"errore": "EMAIL NON INSERITA"}), 400
+    if not data or 'email' not in data or 'password' not in data:
+        return jsonify({"errore": "Email or password missing"}), 400
 
     email = data['email']
+    password = data['password']
     nome = data.get('nome')
     cognome = data.get('cognome')
     logger.info(f"Attempting registration for {email} -> {nome} {cognome}")
 
-    success = User.add_user(email, nome, cognome)
+    success = User.add_user(email, password, nome, cognome)
     if success:
         response_body = {"message": "Utente registrato con successo", "email_request": email, "status": True}
         status_code = 201
@@ -195,6 +195,17 @@ def delete_user():
     if success:
         response_body = {"message": "utente correttamente eliminato dall'archivio", "email_request": email, "status": True}
         status_code = 200
+
+        # Chiamata gRPC per eliminare le preferenze associate all'utente
+        try:
+            response = stub.DeleteUserInterests(user_service_pb2.DeleteUserInterestsRequest(email=email), timeout=5)
+
+            if response.status == 0:
+                response_body['details'] = "interessi utente eliminati con successo"
+            else:
+                logger.error(f"Errore eliminazione interessi utente via gRPC: status {response.status}")
+        except grpc.RpcError as e:
+            logger.error(f"gRPC error: {e.code().name} - {e.details()}")
     else:
         response_body = {"message": "utente non presente in archivio", "email_request": email, "status": False}
         status_code = 404
@@ -208,9 +219,5 @@ def delete_user():
 
 
 if __name__ == '__main__':
-    # Avvio del server gRPC in thread separato per non bloccare Flask
-    grpc_thread = threading.Thread(target=run_grpc_server, daemon=True)
-    grpc_thread.start()
-
     logger.info("REST Server listening on port 5000")
     app.run(host='0.0.0.0', port=5000, debug=False)          

@@ -9,21 +9,24 @@ logger = logging.getLogger(__name__)
 
 class User(db.Model):
     __tablename__ = 'users'
-
     email = db.Column(db.String(255), primary_key=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
     nome = db.Column(db.String(100), nullable=False)
     cognome = db.Column(db.String(150), nullable=False)
+    
+    @classmethod
+    def login(cls, email, password):
+        """Restituisce True se l'email e la password corrispondono."""
+        user = cls.query.filter_by(email=email).first()
+        if user and user.password == password:
+            return True
+        return False
 
     @classmethod
-    def user_exist(cls, email):
-        """Restituisce True se l'email è già presente nel DB."""
-        return cls.query.filter_by(email=email).first() is not None
-
-    @classmethod
-    def add_user(cls, email, nome, cognome):
+    def add_user(cls, email, password, nome, cognome):
         """Aggiunge un nuovo utente. Ritorna True se inserito correttamente."""
         try:
-            new_user = cls(email=email, nome=nome, cognome=cognome)
+            new_user = cls(email=email, password=password, nome=nome, cognome=cognome)
             db.session.add(new_user)
             db.session.commit()
             logger.info("User successfully inserted")

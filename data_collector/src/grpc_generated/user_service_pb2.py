@@ -24,17 +24,17 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12user_service.proto\"!\n\x10UserCheckRequest\x12\r\n\x05\x65mail\x18\x01 \x01(\t\"4\n\x11UserCheckResponse\x12\x0e\n\x06status\x18\x01 \x01(\x05\x12\x0f\n\x07message\x18\x02 \x01(\t2L\n\x10\x43heckUserService\x12\x38\n\x0f\x43heckUserExists\x12\x11.UserCheckRequest\x1a\x12.UserCheckResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12user_service.proto\"+\n\x1a\x44\x65leteUserInterestsRequest\x12\r\n\x05\x65mail\x18\x01 \x01(\t\">\n\x1b\x44\x65leteUserInterestsResponse\x12\x0e\n\x06status\x18\x01 \x01(\x05\x12\x0f\n\x07message\x18\x02 \x01(\t2n\n\x1a\x44\x65leteUserInterestsService\x12P\n\x13\x44\x65leteUserInterests\x12\x1b.DeleteUserInterestsRequest\x1a\x1c.DeleteUserInterestsResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'user_service_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_USERCHECKREQUEST']._serialized_start=22
-  _globals['_USERCHECKREQUEST']._serialized_end=55
-  _globals['_USERCHECKRESPONSE']._serialized_start=57
-  _globals['_USERCHECKRESPONSE']._serialized_end=109
-  _globals['_CHECKUSERSERVICE']._serialized_start=111
-  _globals['_CHECKUSERSERVICE']._serialized_end=187
+  _globals['_DELETEUSERINTERESTSREQUEST']._serialized_start=22
+  _globals['_DELETEUSERINTERESTSREQUEST']._serialized_end=65
+  _globals['_DELETEUSERINTERESTSRESPONSE']._serialized_start=67
+  _globals['_DELETEUSERINTERESTSRESPONSE']._serialized_end=129
+  _globals['_DELETEUSERINTERESTSSERVICE']._serialized_start=131
+  _globals['_DELETEUSERINTERESTSSERVICE']._serialized_end=241
 # @@protoc_insertion_point(module_scope)

@@ -5,6 +5,7 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 class KafkaProducer:
@@ -31,7 +32,6 @@ class KafkaProducer:
         """Invia `message` (serializzato come JSON) al `topic` specificato."""
         self.producer.produce(topic, json.dumps(message).encode('utf-8'), callback=self.delivery_report)
         logger.debug(f"Produced message to topic {topic}: {message}")
-        # poll per invocare i callback di delivery e flush per assicurarsi che il messaggio sia inviato
+        # poll per invocare i callback di delivery
         self.producer.poll(0)
-        self.producer.flush()
 

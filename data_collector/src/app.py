@@ -25,6 +25,8 @@ import json
 from circuit_breaker import CircuitBreakerOpenException
 import logging
 from kafkaClient import KafkaProducer
+from concurrent import futures
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -50,50 +52,44 @@ with app.app_context():
     # Crea le tabelle se non esistono
     extensions.db.create_all()
 
-
 # --- Redis caches ---
-email_check_cache = redis.Redis(
+requests_cache = redis.Redis(
     host=os.getenv('REDIS_HOST', 'data-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
     db=0,
     decode_responses=True,
 )
 
-requests_cache = redis.Redis(
-    host=os.getenv('REDIS_HOST', 'data-cache'),
-    port=int(os.getenv('REDIS_PORT', 6379)),
-    db=1,
-    decode_responses=True,
-)
-
-
 # --- Scheduler setup (periodic tasks) ---
 extensions.scheduler.init_app(app)
 extensions.scheduler.start()
 
+class DeleteUserInterestsHandler(user_service_pb2_grpc.DeleteUserInterestsServiceServicer):
+    def DeleteUserInterests(self, request, context):
+        email = request.email
 
-# --- gRPC client setup for user validation ---
-service_config = """{
-    "methodConfig": [{
-        "name": [{"service": "CheckUserService"}],
-        "retryPolicy": {
-            "maxAttempts": 3,
-            "initialBackoff": "0.5s",
-            "maxBackoff": "3s",
-            "backoffMultiplier": 2,
-            "retryableStatusCodes": ["UNAVAILABLE"]
-        },
-        "timeout": "5s"
-    }]
-}"""
+        with app.app_context():
+            try:
+                stmt = extensions.db.delete(AirportsOfInterest).where(AirportsOfInterest.email == email)
+                extensions.db.session.execute(stmt)
+                extensions.db.session.commit()
+            except SQLAlchemyError as e:
+                logger.error(f"Database error during deletion of interests for {email}: {str(e)}")
+                return user_service_pb2.DeleteUserInterestsResponse(status=1, message="Database error")
 
-options = [('grpc.service_config', service_config)]
-channel = grpc.insecure_channel('user-manager:50051', options=options)
-stub = user_service_pb2_grpc.CheckUserServiceStub(channel)
+            return user_service_pb2.DeleteUserInterestsResponse(status=0, message="User interests deleted successfully")
+
+def run_grpc_server():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    user_service_pb2_grpc.add_DeleteUserInterestsServiceServicer_to_server(DeleteUserInterestsHandler(), server)
+    server.add_insecure_port('[::]:50051')
+    logger.info("gRPC Server listening on port 50051")
+    server.start()
+    server.wait_for_termination()
 
 # --- Kafka producer wrapper (confluent-kafka) ---
 producer_config = {
-    'bootstrap.servers': 'broker-kafka:9092',
+    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
     'acks': 'all',
     'batch.size': 10000,
     'max.in.flight.requests.per.connection': 1,
@@ -103,10 +99,8 @@ producer_config = {
 
 extensions.kafka_producer = KafkaProducer(producer_config)
 
-
-# --- Middleware: verifica esistenza utente via gRPC e caching ---
 @app.before_request
-def email_check():
+def headers_check():
     g.client_id = request.headers.get('X-Client-ID')
     g.request_id = request.headers.get('X-Request-ID')
     g.email = request.headers.get('X-User-Email')
@@ -118,37 +112,6 @@ def email_check():
         return jsonify({"error": "Header 'X-Request-ID' missing"}), 400
     if not g.email:
         return jsonify({"error": "Header 'X-User-Email' missing"}), 400
-
-    # idempotency/cache key formato: client:request
-    cache_key = f"{g.client_id}:{g.request_id}"
-    cached_data = email_check_cache.get(cache_key)
-
-    if cached_data:
-        cached_json = json.loads(cached_data)
-        if cached_json.get("status_code") == 200:
-            return None
-        return jsonify(cached_json['body']), cached_json['status_code']
-
-    # Se non in cache, chiamo il servizio gRPC
-    try:
-        response = stub.CheckUserExists(user_service_pb2.UserCheckRequest(email=g.email), timeout=5)
-        response_json = {"status": response.status, "message": response.message}
-
-        cache_packet = {"body": response_json, "status_code": 200}
-
-        if response.status == 0:
-            # utente trovato -> cache positiva
-            email_check_cache.setex(cache_key, 300, json.dumps(cache_packet))
-            return None
-        else:
-            cache_packet["status_code"] = 401
-            email_check_cache.setex(cache_key, 300, json.dumps(cache_packet))
-            return jsonify(response_json), 401
-
-    except grpc.RpcError as e:
-        logger.error(f"gRPC error contacting user validation service: {e.code().name} - {e.details()}")
-        return jsonify({"error": "Validation service not available"}), 503
-
 
 # --- Routes ---
 @app.route('/airport-of-interest/add', methods=['POST'])
@@ -196,32 +159,42 @@ def add_airports_of_interest():
         extensions.db.session.rollback()
         return jsonify({"error": "Database error, cant add the airports", "details": str(e)}), 500
 
+    response_body = {"message": "Airports of interest added"}
     # Dopo salvataggio, recupero dati voli e invio a Kafka
     try:
+        airports_without_flights = []
+
         for interest in interests:
             result = tasks.fetch_data(interest.get('icao'))
+            interest['flights_count'] = len(result)
+
+            if not result:
+                airports_without_flights.append(interest.get('icao'))
+                continue
 
             stmt = insert(Flights).values(result)
             stmt = stmt.prefix_with('IGNORE')
             extensions.db.session.execute(stmt)
-            extensions.db.session.commit()
 
-            interest['flights_count'] = len(result)
+        extensions.db.session.commit()
 
         tasks.send_to_kafka(interests, g.email)
 
-        response_body = {"message": "Airports added"}
+        response_body['flights_not_found_for'] = airports_without_flights
         cache_packet = {"body": response_body, "status_code": 201}
         requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
         return jsonify(response_body), 201
 
     except CircuitBreakerOpenException:
-        return jsonify({"message": "Airports added", "warning": "Some updates failed. Circuit open."}), 201
+        response_body["warning"] = "Connection to OpenSky failed. Circuit open."
+        return jsonify(response_body), 201
     except FileNotFoundError:
-        return jsonify({"message": "Airports added", "warning": "Secrets not found for token retrieval."}), 201
+        response_body["warning"] = "Secrets not found for token retrieval."
+        return jsonify(response_body), 201
     except Exception as e:
         logger.error(str(e))
-        return jsonify({"message": "Airports added", "warning": f"Generic error: {e}"}), 201
+        response_body["warning"] = f"Generic error: {e}"
+        return jsonify(response_body), 201
 
 
 @app.route('/get-flights/latest', methods=['GET'])
@@ -284,32 +257,31 @@ def average():
             Flights.lastSeen >= limit_date
         ).scalar()
 
-        if departures_count and arrivals_count:
-            avg_departures = departures_count / numberOfDays
-            avg_arrivals = arrivals_count / numberOfDays
+        
+        avg_departures = departures_count / numberOfDays if departures_count else 0
+        avg_arrivals = arrivals_count / numberOfDays if arrivals_count else 0
 
-            response_body = {
-                "aeroporto_selezionato": airport,
-                "numero_di_giorni_analizzati": numberOfDays,
-                "numero_partenze": departures_count,
-                "numero_di_arrivi": arrivals_count,
-                "media_giornaliera_voli_in_partenza": round(avg_departures, 2),
-                "media_giornaliera_voli_in_arrivo": round(avg_arrivals, 2),
-            }
+        response_body = {
+            "aeroporto_selezionato": airport,
+            "numero_di_giorni_analizzati": numberOfDays,
+            "numero_partenze": departures_count,
+            "numero_di_arrivi": arrivals_count,
+            "media_giornaliera_voli_in_partenza": round(avg_departures, 2),
+            "media_giornaliera_voli_in_arrivo": round(avg_arrivals, 2),
+        }
 
-            cache_packet = {"body": response_body, "status_code": 200}
-            requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-            return jsonify(response_body), 200
-        else:
-            response_body = {"message": "No flights available for this airport."}
-            cache_packet = {"body": response_body, "status_code": 404}
-            requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-            return jsonify(response_body), 404
+        cache_packet = {"body": response_body, "status_code": 200}
+        requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+        return jsonify(response_body), 200
 
     except Exception as e:
         return jsonify({"error": "Error in api", "details": str(e)}), 500
 
 
 if __name__ == '__main__':
+    # Avvio del server gRPC in thread separato per non bloccare Flask
+    grpc_thread = threading.Thread(target=run_grpc_server, daemon=True)
+    grpc_thread.start()
+
     port = int(os.environ.get('DATA_COLLECTOR_PORT', 5000))
     app.run(host='0.0.0.0', port=port)

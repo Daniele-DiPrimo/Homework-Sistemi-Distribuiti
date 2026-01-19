@@ -1,62 +1,142 @@
 services:
 
-  broker-kafka:
+  kafka-init:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: broker-kafka
-    ports:
-      - "9092:9092"
-    
+    container_name: kafka-init
+    entrypoint: 
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        echo "STARTING INIT SCRIPT..."
+        
+        echo "Waiting for final synchronization..."
+        sleep 5
+
+        echo "Creating topics..."
+        kafka-topics --bootstrap-server broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092 --create --if-not-exists --topic to-alert-system --replication-factor 2 --partitions 3
+        kafka-topics --bootstrap-server broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092 --create --if-not-exists --topic to-notify --replication-factor 2 --partitions 3
+        
+        echo "VERIFICATION: List topics"
+        kafka-topics --bootstrap-server broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092 --list
+        
+        echo "INIT SCRIPT COMPLETED."
+    networks:
+      - kafka-network
+    depends_on:
+      broker-kafka-1:
+        condition: service_healthy
+      broker-kafka-2:
+        condition: service_healthy
+      broker-kafka-3:
+        condition: service_healthy
+
+  broker-kafka-1:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: broker-kafka-1
     healthcheck:
-      # Questo comando controlla se Kafka è davvero pronto a rispondere
       test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 60s
-
     environment:
       # --- Configurazione KRaft ---
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker-kafka:9093'
-      
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker-kafka-1:9093,2@broker-kafka-2:9093,3@broker-kafka-3:9093'
       # --- Listeners ---
-      # Confluent rispetta le stesse variabili, non serve cambiare nulla qui
       KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
-      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker-kafka:9092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker-kafka-1:9092'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
-      
       # --- Altre Configurazioni ---
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_HEAP_OPTS: "-Xmx400M -Xms400M"
-
-      # --- L'UNICA AGGIUNTA NECESSARIA ---
-      # L'immagine Confluent richiede un CLUSTER_ID statico per avviare KRaft
-      # senza comandi manuali. Questo è un UUID base64 casuale.
-      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk' 
-      KAFKA_LOG_DIRS: /var/lib/kafka/dat
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
-      # Confluent usa lo stesso path interno (/var/lib/kafka/data)
-      - kafka_data:/var/lib/kafka/data
+      - kafka_data_1:/var/lib/kafka/data
+    networks:
+      - kafka-network
+
+  broker-kafka-2:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: broker-kafka-2
+    healthcheck:
+      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker-kafka-1:9093,2@broker-kafka-2:9093,3@broker-kafka-3:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker-kafka-2:9092'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_HEAP_OPTS: "-Xmx400M -Xms400M"
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka_data_2:/var/lib/kafka/data
+    networks:
+      - kafka-network
+
+  broker-kafka-3:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: broker-kafka-3
+    healthcheck:
+      test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker-kafka-1:9093,2@broker-kafka-2:9093,3@broker-kafka-3:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://:9092,CONTROLLER://:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker-kafka-3:9092'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_HEAP_OPTS: "-Xmx400M -Xms400M"
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka_data_3:/var/lib/kafka/data
     networks:
       - kafka-network
     
-
   kafka-ui: 
     image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
     depends_on:
-      - broker-kafka
+      - broker-kafka-1
+      - broker-kafka-2
+      - broker-kafka-3
     ports:
       - "8080:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker-kafka:9092
-      KAFKA_LOG_DIRS: /var/lib/kafka/dat
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     networks:
       - kafka-network
       
@@ -67,8 +147,14 @@ services:
       - kafka-network
     restart: always
     depends_on:
-      broker-kafka: 
+      broker-kafka-1: 
         condition: service_healthy
+      broker-kafka-2: 
+        condition: service_healthy
+      broker-kafka-3: 
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
   alert-notifier-system:
     build: ./alert_notifier_system
@@ -82,8 +168,14 @@ services:
       - kafka-network
     restart: always
     depends_on:
-      broker-kafka:
+      broker-kafka-1:
         condition: service_healthy
+      broker-kafka-2:
+        condition: service_healthy
+      broker-kafka-3:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
   api_gateway:
     build: ./api_gateway
@@ -93,29 +185,27 @@ services:
       - "443:443"
     volumes:
       # Configurazione NGINX principale
-      # ATTENZIONE: In OpenResty il file principale è solitamente qui:
       - ./api_gateway/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
-      # Config Load Balancer (se incluso nel nginx.conf)
+      # Config Load Balancer
       - ./api_gateway/load_balancer.conf:/etc/nginx/conf.d/load_balancer.conf:ro
       # Certificati SSL
       - ./api_gateway/SSL:/etc/nginx/ssl:ro
       # Public Key per JWT
       - ./api_gateway/public_key.pem:/etc/nginx/keys/public.pem:ro
-      # Lo script Lua per validare i token!
+      # Script Lua per validare i token
       - ./api_gateway/jwt_validator.lua:/etc/nginx/lua/jwt_validator.lua:ro
     depends_on:
       user-manager:
-        condition: service_healthy
-      data-collector:
         condition: service_started
+      data-collector:
+        condition: service_healthy
+    restart: always
     networks:
       - gateway-network
 
   flights_db:
     image: mariadb:10.11
     container_name: flights_db
-    ports:
-    - "${FLIGHTSDB_HOST_PORT}:${FLIGHTSDB_PORT}"
     environment:
       - MARIADB_DATABASE=${FLIGHTSDB_DATABASE}
       - MARIADB_USER=${FLIGHTSDB_USER}
@@ -126,7 +216,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 30s
     networks:
       - data-network
     restart: on-failure
@@ -136,14 +226,6 @@ services:
   data-collector:
     build: ./data_collector
     container_name: data-collector
-    #ports:
-    #  - "${DATA_COLLECTOR_HOST_PORT}:${DATA_COLLECTOR_PORT}"
-    expose:
-      - "5001"
-    volumes:
-      # Montiamo la cartella locale ./api_gateway/SSL dentro al container in /app/certs
-      # In questo modo il client Python può leggere nginx.crt
-      - ./api_gateway/SSL:/app/certs:ro
     environment:
       - SSL_CERT_FILE=${SSL_CERT_FILE}
       - PYTHONUNBUFFERED=1
@@ -158,11 +240,26 @@ services:
       - REDIST_PORT=${REDIS_PORT}
     secrets:
       - opensky_secrets
+    healthcheck:
+      # Prova a connettersi a localhost:50051. Se riesce, esce con 0 (OK).
+      test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051));\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     depends_on:
       flights_db: 
         condition: service_healthy
       data-cache:
           condition: service_healthy
+      broker-kafka-1: 
+        condition: service_healthy
+      broker-kafka-2: 
+        condition: service_healthy
+      broker-kafka-3: 
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - data-network
       - gateway-network
@@ -177,12 +274,10 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     restart: always
     networks:
       - data-network
-    ports:
-      - "${DATA_REDIS_HOST_PORT}:${REDIS_PORT}"
 
   user-db: 
     image: mariadb:10.11
@@ -193,35 +288,21 @@ services:
       - MARIADB_DATABASE=${NAME_DB}
       - MARIADB_USER=${USER_DB}
       - MARIADB_PASSWORD=${PASSWORD_DB}
-    ports:
-      - "${USER_DB_HOST_PORT}:${USER_DB_PORT}"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 30s
     networks:
       - user-network
     volumes: 
       - userdb_data:/var/lib/mysql
 
-
   user-manager:
     build: ./user_manager
     container_name: user-manager
     restart: always
-    #ports:
-    #  - "${USER_MANAGER_HOST_PORT}:${USER_MANAGER_PORT}"
-    expose:
-      - "5000"
-    healthcheck:
-      # Prova a connettersi a localhost:50051. Se riesce, esce con 0 (OK).
-      test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051));\""]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 120s
     environment:
       - PYTHONUNBUFFERED= 1
       - HOST_DB=${HOST_DB}
@@ -251,18 +332,18 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     restart: always
     networks:
       - user-network
       - gateway-network #black_list redis
-    ports:
-      - "${USER_REDIS_HOST_PORT}:${REDIS_PORT}"
 
 volumes:
   flightdb_data:
   userdb_data:
-  kafka_data:
+  kafka_data_1:
+  kafka_data_2:
+  kafka_data_3:
 
 networks:
   user-network:

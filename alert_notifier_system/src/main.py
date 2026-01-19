@@ -15,6 +15,7 @@ import ssl
 from email.message import EmailMessage
 import os
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # SMTP configuration (possibile sovrascriverle con variabili d'ambiente)
@@ -25,7 +26,7 @@ EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
 
 # Kafka consumer configuration
 consumer_config = {
-    'bootstrap.servers': 'broker-kafka:9092',
+    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
     'group.id': 'group2',
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
@@ -50,7 +51,7 @@ def send_email(notification: dict) -> bool:
     viene loggato l'errore e si ritorna False.
     """
     if not SENDER_EMAIL or not EMAIL_PASSWORD:
-        logging.error("Sender email or password not set in environment variables.")
+        logger.error("Sender email or password not set in environment variables.")
         return False
 
     msg = EmailMessage()
@@ -77,10 +78,10 @@ def send_email(notification: dict) -> bool:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
             server.login(SENDER_EMAIL, EMAIL_PASSWORD)
             server.send_message(msg)
-        logging.info(f"Email inviata a {notification.get('email')}")
+        logger.info(f"Email inviata a {notification.get('email')}")
         return True
     except Exception as e:
-        logging.error(f"Error sending email: {e}")
+        logger.error(f"Error sending email: {e}")
         return False
 
 
@@ -91,8 +92,8 @@ def _process_message_batch(messages: list):
 
 
 def main_loop():
-    logging.info(f"Consumer ALERT-NOTIFIER-SYSTEM started. Batch size: {BATCH_SIZE}")
-    logging.info("Waiting for messages...")
+    logger.info(f"Consumer ALERT-NOTIFIER-SYSTEM started. Batch size: {BATCH_SIZE}")
+    logger.info("Waiting for messages...")
 
     try:
         global message_count, received_messages
@@ -104,47 +105,47 @@ def main_loop():
             if msg.error():
                 # EOF or other errors
                 if msg.error().code() == KafkaError._PARTITION_EOF:
-                    logging.debug(f"End of partition {msg.partition()}")
+                    logger.debug(f"End of partition {msg.partition()}")
                 else:
-                    logging.error(f"Consumer error: {msg.error()}")
+                    logger.error(f"Consumer error: {msg.error()}")
                 continue
 
             try:
                 data = json.loads(msg.value().decode('utf-8'))
                 received_messages.append(data)
                 message_count += 1
-                logging.info(f"Received message #{message_count} (batch {message_count}/{BATCH_SIZE})")
+                logger.info(f"Received message #{message_count} (batch {message_count}/{BATCH_SIZE})")
 
                 if message_count >= BATCH_SIZE:
-                    logging.info(f"Processing batch of {len(received_messages)} messages")
+                    logger.info(f"Processing batch of {len(received_messages)} messages")
                     _process_message_batch(received_messages)
 
                     # Commit offsets dopo il processamento per at-least-once
                     consumer.commit(asynchronous=False)
-                    logging.info(f"Committed offset: {msg.offset()}")
+                    logger.info(f"Committed offset: {msg.offset()}")
 
                     # reset batch
                     received_messages = []
                     message_count = 0
 
             except (json.JSONDecodeError, KeyError) as e:
-                logging.error(f"Malformed message at offset {msg.offset()}: {e}")
+                logger.error(f"Malformed message at offset {msg.offset()}: {e}")
                 # Commit malformed message offset per evitare reprocessing infinito
                 consumer.commit(msg)
                 continue
 
     except KeyboardInterrupt:
-        logging.info("Consumer interrupted by user.")
+        logger.info("Consumer interrupted by user.")
     finally:
         # Process remaining messages before shutdown
         if received_messages:
-            logging.info("Processing remaining messages before shutdown...")
+            logger.info("Processing remaining messages before shutdown...")
             _process_message_batch(received_messages)
             consumer.commit(asynchronous=False)
 
-        logging.info("Closing consumer...")
+        logger.info("Closing consumer...")
         consumer.close()
-        logging.info("Shutdown complete")
+        logger.info("Shutdown complete")
 
 
 if __name__ == '__main__':

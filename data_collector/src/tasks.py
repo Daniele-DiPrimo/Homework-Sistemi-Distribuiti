@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 flights_cache = redis.Redis(
     host=os.getenv('REDIS_HOST', 'data-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
-    db=2,
+    db=1,
     decode_responses=True,
 )
 
@@ -40,15 +40,16 @@ def get_opensky_token():
     I segreti (clientId/clientSecret) sono letti da un file JSON il cui
     path è fornito tramite la variabile d'ambiente `SECRETS_PATH`.
     """
+
+    token = flights_cache.get('opensky_token')
+    if token:
+        return token
+    
     url = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
     secrets_path = os.getenv('OPENSKY_SECRET_PATH', '')
 
-    try:
-        with open(secrets_path, 'r') as f:
-            config = json.load(f)
-    except FileNotFoundError:
-        logging.critical(f"ERRORE FATALE: Impossibile trovare il secret di opnesky")
-        sys.exit(1)
+    with open(secrets_path, 'r') as f:
+        config = json.load(f)
 
     client_id = config['clientId']
     client_secret = config['clientSecret']
@@ -62,8 +63,12 @@ def get_opensky_token():
     response = requests.post(url, data=payload, timeout=10)
     response.raise_for_status()
 
-    token_data = response.json()
-    return token_data.get('access_token')
+    data = response.json()
+    token = data.get('access_token')
+    expires_in = data.get('expires_in', 1800)
+    
+    flights_cache.setex('opensky_token', expires_in - 60, token)
+    return token
 
 
 def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None):
@@ -116,7 +121,7 @@ def fetch_data(icao):
         logger.error(f"Error during API call for {icao}: {e}")
 
     if not result:
-        raise Exception("No results found.")
+        return []
 
     # Filtra e normalizza i risultati: manteniamo solo le colonne usate dal modello Flights
     clean_result = []

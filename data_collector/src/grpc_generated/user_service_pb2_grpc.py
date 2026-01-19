@@ -25,14 +25,9 @@ if _version_not_supported:
     )
 
 
-class CheckUserServiceStub(object):
+class DeleteUserInterestsServiceStub(object):
     """questo e' il file .proto in cui si definiscono le funzioni
     che permettono la comunicazione tra i due microservizi. 
-    questo file contiene una sola funzione: 
-    La funzione permettera' al microservizio Data Manager di inviare
-    una richiesta gRPC al microservizio User Manager. 
-    La funzione ha come parametro la mail da controllare
-    e ha come risposta un booleano. 
 
     """
 
@@ -42,59 +37,49 @@ class CheckUserServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.CheckUserExists = channel.unary_unary(
-                '/CheckUserService/CheckUserExists',
-                request_serializer=user__service__pb2.UserCheckRequest.SerializeToString,
-                response_deserializer=user__service__pb2.UserCheckResponse.FromString,
+        self.DeleteUserInterests = channel.unary_unary(
+                '/DeleteUserInterestsService/DeleteUserInterests',
+                request_serializer=user__service__pb2.DeleteUserInterestsRequest.SerializeToString,
+                response_deserializer=user__service__pb2.DeleteUserInterestsResponse.FromString,
                 _registered_method=True)
 
 
-class CheckUserServiceServicer(object):
+class DeleteUserInterestsServiceServicer(object):
     """questo e' il file .proto in cui si definiscono le funzioni
     che permettono la comunicazione tra i due microservizi. 
-    questo file contiene una sola funzione: 
-    La funzione permettera' al microservizio Data Manager di inviare
-    una richiesta gRPC al microservizio User Manager. 
-    La funzione ha come parametro la mail da controllare
-    e ha come risposta un booleano. 
 
     """
 
-    def CheckUserExists(self, request, context):
+    def DeleteUserInterests(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
 
-def add_CheckUserServiceServicer_to_server(servicer, server):
+def add_DeleteUserInterestsServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'CheckUserExists': grpc.unary_unary_rpc_method_handler(
-                    servicer.CheckUserExists,
-                    request_deserializer=user__service__pb2.UserCheckRequest.FromString,
-                    response_serializer=user__service__pb2.UserCheckResponse.SerializeToString,
+            'DeleteUserInterests': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteUserInterests,
+                    request_deserializer=user__service__pb2.DeleteUserInterestsRequest.FromString,
+                    response_serializer=user__service__pb2.DeleteUserInterestsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'CheckUserService', rpc_method_handlers)
+            'DeleteUserInterestsService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('CheckUserService', rpc_method_handlers)
+    server.add_registered_method_handlers('DeleteUserInterestsService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class CheckUserService(object):
+class DeleteUserInterestsService(object):
     """questo e' il file .proto in cui si definiscono le funzioni
     che permettono la comunicazione tra i due microservizi. 
-    questo file contiene una sola funzione: 
-    La funzione permettera' al microservizio Data Manager di inviare
-    una richiesta gRPC al microservizio User Manager. 
-    La funzione ha come parametro la mail da controllare
-    e ha come risposta un booleano. 
 
     """
 
     @staticmethod
-    def CheckUserExists(request,
+    def DeleteUserInterests(request,
             target,
             options=(),
             channel_credentials=None,
@@ -107,9 +92,9 @@ class CheckUserService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/CheckUserService/CheckUserExists',
-            user__service__pb2.UserCheckRequest.SerializeToString,
-            user__service__pb2.UserCheckResponse.FromString,
+            '/DeleteUserInterestsService/DeleteUserInterests',
+            user__service__pb2.DeleteUserInterestsRequest.SerializeToString,
+            user__service__pb2.DeleteUserInterestsResponse.FromString,
             options,
             channel_credentials,
             insecure,
