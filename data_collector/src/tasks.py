@@ -7,6 +7,7 @@ Contiene funzioni per:
 - inviare notifiche aggregate a Kafka
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import extensions
 import logging
@@ -95,45 +96,50 @@ def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None
     response.raise_for_status()
     return response.json()
 
+def _clean_flights(raw_list):
+    """Pulisce i dati grezzi (da API o Cache) per renderli compatibili col DB."""
+    clean_result = []
+    expected_columns = Flights.__table__.columns.keys()
+    
+    for r in raw_list:
+        if r.get('estDepartureAirport') and r.get('estArrivalAirport'):
+            # Filtra solo le colonne del DB
+            flight = {k: v for k, v in r.items() if k in expected_columns}
+            
+            # Converte timestamp in datetime se necessario
+            if isinstance(flight.get('firstSeen'), (int, float)):
+                flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen'])
+            if isinstance(flight.get('lastSeen'), (int, float)):
+                flight['lastSeen'] = datetime.fromtimestamp(flight['lastSeen'])
+            
+            clean_result.append(flight)
+    return clean_result
 
 def fetch_data(icao):
-    """Recupera i voli per `icao`, usando cache e circuit breaker.
+    """Recupera i voli per `icao."""
 
-    Restituisce una lista di record puliti pronti per essere inseriti nel DB.
-    """
     cached_data = flights_cache.get(icao)
     if cached_data:
-        data = json.loads(cached_data)
-        logger.info(f"Cache hit for {icao}. Retrieved {len(data)} flights from cache.")
-        return data
+        logger.info(f"Cache hit for {icao}.")
+        return _clean_flights(json.loads(cached_data))
 
-    # Recupero token protetto da circuit breaker
     token = circuit_breaker.call(get_opensky_token)
-
     end = int(time.time())
     begin = end - 28800  # 8 ore
-    result = None
 
+    result = None
     try:
         result = circuit_breaker.call(get_flights_by_airport, icao, begin, end, token, departure=True, arrival=True)
-        flights_cache.setex(icao, 28800, json.dumps(result))
+        
+        if result:
+            flights_cache.setex(icao, 900, json.dumps(result))
     except requests.exceptions.RequestException as e:
         logger.error(f"Error during API call for {icao}: {e}")
 
     if not result:
         return []
 
-    # Filtra e normalizza i risultati: manteniamo solo le colonne usate dal modello Flights
-    clean_result = []
-    for r in result:
-        if r.get('estDepartureAirport') and r.get('estArrivalAirport'):
-            flight = {k: v for k, v in r.items() if k in Flights.__table__.columns.keys()}
-            # converte i timestamp in datetime
-            flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen'])
-            flight['lastSeen'] = datetime.fromtimestamp(flight['lastSeen'])
-            clean_result.append(flight)
-
-    return clean_result
+    return _clean_flights(result)
 
 
 def send_to_kafka(message, email):
@@ -153,40 +159,81 @@ def update_database():
     with extensions.scheduler.app.app_context():
         logger.info("--- Updating database... ---")
         try:
+            # Recupero tutti gli interessi dal DB
             stmt = extensions.db.select(AirportsOfInterest)
-            result = extensions.db.session.execute(stmt)
-            interests = result.scalars().all()
-            interests = [i.to_dict() for i in interests]
-
-            if not interests:
+            all_interests_orm = extensions.db.session.execute(stmt).scalars().all()
+            
+            if not all_interests_orm:
                 logger.info("--- No interests found in DB. ---")
                 return
 
-            users = list({i.get('email') for i in interests})
-            for user in users:
-                user_interests = [i for i in interests if i['email'] == user]
-                for interest in user_interests:
-                    result = fetch_data(interest['icao'])
+            # Converto ORM -> List of Dicts per lavorarci in memoria
+            all_interests_dicts = [i.to_dict() for i in all_interests_orm]
 
-                    # aggiorna DB con nuovi voli (IGNORE per evitare duplicati)
-                    stmt = insert(Flights).values(result)
-                    stmt = stmt.prefix_with('IGNORE')
-                    extensions.db.session.execute(stmt)
-                    extensions.db.session.commit()
+            # Identifico Aeroporti UNICI (Deduplicazione)
+            unique_icaos = {i['icao'] for i in all_interests_dicts}
+            logger.info(f"Unique airports to fetch: {len(unique_icaos)}")
 
-                    interest['flights_count'] = len(result)
+            # Mappe temporanee
+            icao_counts_map = {} 
+            all_flights_to_insert = []
 
-                # rimuovo l'email prima di inviare a Kafka
-                for ui in user_interests:
-                    ui.pop('email', None)
+            # Fetch Parallelo (max 5 thread)
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_icao = {
+                    executor.submit(fetch_data, icao): icao 
+                    for icao in unique_icaos
+                }
 
-                send_to_kafka(user_interests, user)
+                for future in as_completed(future_to_icao):
+                    icao = future_to_icao[future]
+                    try:
+                        # Qui chiamiamo result() e catturiamo le eccezioni specifiche
+                        flights = future.result()
+                        
+                        icao_counts_map[icao] = len(flights)
+                        if flights:
+                            all_flights_to_insert.extend(flights)
 
-            logger.info("--- Update done. ---")
+                    # --- GESTIONE ERRORI SPECIFICA ---
+                    except CircuitBreakerOpenException:
+                        logger.warning(f"Skipping {icao}: Circuit Breaker is OPEN.")
+                        icao_counts_map[icao] = 0
+                        
+                    except FileNotFoundError:
+                        logger.critical(f"Failed {icao}: Secrets file not found!")
+                        icao_counts_map[icao] = 0
+                        
+                    except Exception as e:
+                        logger.error(f"Generic error fetching {icao}: {e}")
+                        icao_counts_map[icao] = 0
 
-        except CircuitBreakerOpenException:
-            logger.error("Circuit is open. Skipping call.")
-        except FileNotFoundError:
-            logger.error("Cannot receive token: Secrets not found!")
+            # Bulk Insert nel DB
+            if all_flights_to_insert:
+                logger.info(f"Inserting {len(all_flights_to_insert)} flights into DB...")
+                stmt = insert(Flights).values(all_flights_to_insert)
+                stmt = stmt.prefix_with('IGNORE')
+                extensions.db.session.execute(stmt)
+                extensions.db.session.commit()
+
+            # Distribuzione Kafka per Utente
+            users_emails = {i['email'] for i in all_interests_dicts}
+            
+            for email in users_emails:
+                # Filtro gli interessi di questo specifico utente
+                user_payload = [x for x in all_interests_dicts if x['email'] == email]
+                
+                # Arricchisco i dati leggendo dalla memoria
+                for item in user_payload:
+                    item['flights_count'] = icao_counts_map.get(item['icao'], 0)
+                    item.pop('email', None)
+
+                # Invio il pacchetto specifico dell'utente
+                send_to_kafka(user_payload, email)
+
+            logger.info("--- Update done successfully. ---")
+
         except Exception as e:
-            logger.error(f"Generic error: {e}")
+            # Rollback generale in caso di errore critico
+            extensions.db.session.rollback()
+            logger.error(f"Critical error in update task: {e}")
