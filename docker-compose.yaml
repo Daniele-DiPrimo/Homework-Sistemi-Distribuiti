@@ -184,16 +184,10 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      # Configurazione NGINX principale
-      - ./api_gateway/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
-      # Config Load Balancer
-      - ./api_gateway/load_balancer.conf:/etc/nginx/conf.d/load_balancer.conf:ro
       # Certificati SSL
       - ./api_gateway/SSL:/etc/nginx/ssl:ro
       # Public Key per JWT
       - ./api_gateway/public_key.pem:/etc/nginx/keys/public.pem:ro
-      # Script Lua per validare i token
-      - ./api_gateway/jwt_validator.lua:/etc/nginx/lua/jwt_validator.lua:ro
     depends_on:
       user-manager:
         condition: service_started

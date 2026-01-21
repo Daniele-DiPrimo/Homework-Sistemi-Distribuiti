@@ -3,3 +3,4 @@
 credentials.json
 private_key.pem
 public_key.pem
+.env_old

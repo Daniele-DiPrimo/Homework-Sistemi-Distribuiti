@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-init
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: init
+        image: confluentinc/cp-kafka:7.4.0
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            echo "Waiting for Kafka..."
+            sleep 40 # Attesa prudenziale per avvio cluster
+            
+            BOOTSTRAP="kafka-0.kafka-headless:9092"
+            
+            echo "Creating topics..."
+            kafka-topics --bootstrap-server $BOOTSTRAP --create --if-not-exists --topic to-alert-system --replication-factor 3 --partitions 3
+            kafka-topics --bootstrap-server $BOOTSTRAP --create --if-not-exists --topic to-notify --replication-factor 3 --partitions 3
+            
+            echo "Done."

@@ -1,24 +1,25 @@
-# Usiamo l'immagine Alpine (quella che volevi tu)
 FROM openresty/openresty:alpine
 
 # 1. Installiamo dipendenze necessarie
-# perl e curl servono per 'opm'
-# sed serve per patchare la libreria rotta
 RUN apk add --no-cache perl curl sed
 
-# 2. Installiamo la libreria JWT (quella che crasha)
-RUN opm get SkyLothar/lua-resty-jwt/lua-resty-redis
+# 2. Installiamo la libreria JWT
+RUN opm get SkyLothar/lua-resty-jwt
 
-# 3. LA FIX "CHIRURGICA" PER OPENSSL 3
-# Sostituiamo nel codice sorgente della libreria le chiamate vecchie con quelle nuove
-# EVP_MD_CTX_create -> EVP_MD_CTX_new
-# EVP_MD_CTX_destroy -> EVP_MD_CTX_free
+# 3. FIX PER OPENSSL 3
 RUN sed -i 's/EVP_MD_CTX_create/EVP_MD_CTX_new/g' /usr/local/openresty/site/lualib/resty/evp.lua && \
     sed -i 's/EVP_MD_CTX_destroy/EVP_MD_CTX_free/g' /usr/local/openresty/site/lualib/resty/evp.lua
 
 # 4. Creiamo le cartelle
 RUN mkdir -p /etc/nginx/keys \
     && mkdir -p /etc/nginx/ssl \
-    && mkdir -p /etc/nginx/lua
+    && mkdir -p /etc/nginx/lua \
+    && mkdir -p /etc/nginx/conf.d
 
-# Fine.
+# 5. COPIAMO I FILE DI CONFIGURAZIONE
+
+COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+
+COPY load_balancer.conf /etc/nginx/conf.d/load_balancer.conf
+
+COPY jwt_validator.lua /etc/nginx/lua/jwt_validator.lua

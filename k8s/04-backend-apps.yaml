@@ -1,0 +1,155 @@
+# --- User Manager ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-manager
+spec:
+  ports:
+  - port: 5000
+  selector:
+    app: user-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-manager
+  template:
+    metadata:
+      labels:
+        app: user-manager
+    spec:
+      containers:
+      - name: user-manager
+        image: local/user-manager:v1
+        env:
+        - name: HOST_DB
+          value: "user-db"
+        - name: USER_DB_PORT
+          value: "3306"
+        - name: REDIST_HOST
+          value: "user-cache"
+        - name: JWT_PRIVATEKEY_SECRET_PATH
+          value: "/secrets/private_key.pem"
+        envFrom:
+          - secretRef:
+              name: app-secrets
+        volumeMounts:
+        - name: secret-vol
+          mountPath: "/secrets"
+          readOnly: true
+      volumes:
+      - name: secret-vol
+        secret:
+          secretName: app-secrets
+          items:
+          - key: private_key.pem
+            path: private_key.pem
+
+# --- Data Collector ---
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-collector
+spec:
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+  selector:
+    app: data-collector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-collector
+  template:
+    metadata:
+      labels:
+        app: data-collector
+    spec:
+      containers:
+      - name: data-collector
+        image: local/data-collector:v1
+        env:
+        - name: FLIGHTSDB_HOST
+          value: "flights-db"
+        - name: REDIST_HOST
+          value: "data-cache"
+        - name: OPENSKY_SECRET_PATH
+          value: "/secrets/credentials.json"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-0.kafka-headless:9092,kafka-1.kafka-headless:9092,kafka-2.kafka-headless:9092"
+        envFrom:
+          - secretRef:
+              name: app-secrets
+        volumeMounts:
+        - name: secret-vol
+          mountPath: "/secrets"
+          readOnly: true
+      volumes:
+      - name: secret-vol
+        secret:
+          secretName: app-secrets
+          items:
+          - key: credentials.json
+            path: credentials.json
+
+# --- Alert System & Notifier ---
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-system
+  template:
+    metadata:
+      labels:
+        app: alert-system
+    spec:
+      containers:
+      - name: alert-system
+        image: local/alert-system:v1
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "kafka-0.kafka-headless:9092,kafka-1.kafka-headless:9092,kafka-2.kafka-headless:9092"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-notifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-notifier
+  template:
+    metadata:
+      labels:
+        app: alert-notifier
+    spec:
+      containers:
+      - name: alert-notifier
+        image: local/alert-notifier:v1
+        envFrom:
+        - secretRef:
+            name: app-secrets
+        - configMapRef:
+            name: app-config

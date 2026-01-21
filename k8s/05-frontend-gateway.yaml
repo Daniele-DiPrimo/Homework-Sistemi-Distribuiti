@@ -1,0 +1,102 @@
+# --- API Gateway ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+  - name: https
+    port: 443
+    targetPort: 443
+    nodePort: 30443
+  selector:
+    app: api-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: gateway
+        image: local/api-gateway:v1
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        # Montiamo la chiave pubblica per validare i JWT
+        - name: keys-volume
+          mountPath: /etc/nginx/keys
+          readOnly: true
+        # Montiamo i certificati SSL
+        - name: ssl-volume
+          mountPath: /etc/nginx/ssl
+          readOnly: true
+      volumes:
+      - name: keys-volume
+        secret:
+          secretName: app-secrets
+          items:
+          - key: public_key.pem
+            path: public.pem
+      - name: ssl-volume
+        secret:
+          secretName: app-secrets
+          items:
+          - key: nginx.crt
+            path: nginx.crt
+          - key: nginx.key
+            path: nginx.key
+
+# --- Kafka UI ---
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+spec:
+  type: NodePort
+  ports:
+  - name: http      # Aggiungo il nome anche qui per coerenza, anche se con una sola porta non è obbligatorio
+    port: 8080
+    targetPort: 8080
+    nodePort: 30081
+  selector:
+    app: kafka-ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      containers:
+      - name: kafka-ui
+        image: provectuslabs/kafka-ui:latest
+        env:
+        - name: KAFKA_CLUSTERS_0_NAME
+          value: local
+        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+          value: "kafka-0.kafka-headless:9092,kafka-1.kafka-headless:9092,kafka-2.kafka-headless:9092"
