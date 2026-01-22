@@ -56,11 +56,11 @@ if client_id then
         -- Se Redis è giù, stampiamo errore ma lasciamo passare (Fail Open) per non bloccare tutto
         ngx.log(ngx.ERR, "impossibile connettersi a redis: ", err)
     else
-        -- SELEZIONIAMO IL DB 2
+        -- SELEZIONIAMO IL DB 1
         local res, err = red:select(1)
         
         if not res then
-            ngx.log(ngx.ERR, "impossibile selezionare db 2: ", err)
+            ngx.log(ngx.ERR, "impossibile selezionare db 1: ", err)
         else
             -- Verifichiamo la chiave
             local exists, err = red:exists("blacklist:" .. client_id)

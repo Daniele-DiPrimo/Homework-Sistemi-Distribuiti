@@ -16,6 +16,7 @@ from extensions import db
 from user import User
 import jwt
 import uuid
+from prometheus_client import start_http_server, Counter
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +90,18 @@ gRPC_HOST_PORT = os.getenv('gRPC_HOST_PORT', '')
 channel = grpc.insecure_channel(f'{gRPC_HOST}:{gRPC_HOST_PORT}', options=options)
 stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 
+# --- Prometheus Metrics Variables ---
+REGISTER_REQUEST_COUNT = Counter('request_add_user', 'Richieste Aggiunta Utente', ['endpoint'])
+LOGIN_REQUEST_COUNT = Counter('request_login_user', 'Richieste Login Utente', ['endpoint'])
+
+
+
 @app.route('/auth/login', methods=['POST'])
 def login_user():
     """Effettua il login di un utente."""
+
+    LOGIN_REQUEST_COUNT.labels(endpoint='/auth/login').inc()
+
     request_id = request.headers.get('X-Request-ID')
     
     if not request_id:
@@ -139,6 +149,9 @@ def login_user():
 
 @app.route('/auth/register', methods=['POST'])
 def register_user():
+
+    REGISTER_REQUEST_COUNT.labels(endpoint='/auth/register').inc()
+
     """Registra un nuovo utente. Applica idempotenza tramite Redis."""
     request_id = request.headers.get('X-Request-ID')
     if not request_id:
@@ -221,5 +234,7 @@ def delete_user():
 
 
 if __name__ == '__main__':
+
+    start_http_server(8001)
     logger.info("REST Server listening on port 5000")
     app.run(host='0.0.0.0', port=5000, debug=False)          

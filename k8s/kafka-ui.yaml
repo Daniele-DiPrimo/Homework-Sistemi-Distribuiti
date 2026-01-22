@@ -4,12 +4,11 @@ kind: Service
 metadata:
   name: kafka-ui
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
   - name: http
     port: 8080
     targetPort: 8080
-    nodePort: 30081
   selector:
     app: kafka-ui
 ---

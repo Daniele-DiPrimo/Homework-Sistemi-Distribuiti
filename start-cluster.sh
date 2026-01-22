@@ -20,8 +20,8 @@ if [ ! -d "$MANIFEST_DIR" ]; then
     exit 1
 fi
 
-if [ ! -f "kind-config.yaml" ]; then
-    echo -e "${RED}Errore: File 'kind-config.yaml' non trovato nella root!${NC}"
+if [ ! -f "./kind/kind-config.yaml" ]; then
+    echo -e "${RED}Errore: File 'kind-config.yaml' non trovato nella directory ./kind/!${NC}"
     exit 1
 fi
 
@@ -42,7 +42,7 @@ if kind get clusters | grep -q "migration-cluster"; then
     echo -e "${GREEN}Cluster 'migration-cluster' già attivo. Salto la creazione.${NC}"
 else
     echo "Creazione nuovo cluster..."
-    kind create cluster --config kind-config.yaml --name migration-cluster
+    kind create cluster --config ./kind/kind-config.yaml --name migration-cluster
 fi
 
 echo -e "${YELLOW}[3/7] Build & Force Load Immagini...${NC}"
@@ -199,6 +199,9 @@ kubectl apply -f ${MANIFEST_DIR}/kafka-ui.yaml
 echo "Deploying API Gateway..."
 kubectl apply -f ${MANIFEST_DIR}/api-gateway.yaml
 kubectl wait --for=condition=available --timeout=60s deployment/api-gateway
+
+# Prometheus
+kubectl apply -f ${MANIFEST_DIR}/prometheus.yaml
 
 echo -e "${GREEN}==================================================${NC}"
 echo -e "${GREEN}   MIGRAZIONE COMPLETATA CON SUCCESSO! 🚀${NC}"
