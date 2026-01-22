@@ -6,3 +6,4 @@ pymysql
 redis
 PyJWT
 cryptography
+prometheus_client

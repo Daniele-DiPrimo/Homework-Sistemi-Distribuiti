@@ -28,6 +28,7 @@ from kafkaClient import KafkaProducer
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from prometheus_client import start_http_server, Counter, Gauge
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,51 @@ requests_cache = redis.Redis(
 extensions.scheduler.init_app(app)
 extensions.scheduler.start()
 
+# --- metrics variables ---
+
+# 1. REQUEST COUNTER ADD AIRPORT OF INTEREST
+REQUEST_COUNT = Counter(
+    'request_add_airport_total',  # <--- Ho messo gli underscore e _total (standard)
+    'Richieste alla funzione add-airport-of-interest', 
+    ['endpoint']
+)
+
+# 2. ERROR COUNTER ADD AIRPORT OF INTEREST
+ERROR_COUNT = Counter(
+    'error_add_airport_total',    # <--- Underscore
+    'Richieste fallite alla funzione add-airport-of-interest', 
+    ['endpoint']
+)
+
+# 2.5 ERROR COUNTER OPENSKY
+ERROR_COUNT_OPENSKY = Counter(
+    'error_opensky_total',    # <--- Underscore
+    'Richieste fallite alla funzione add-airport-of-interest', 
+    ['endpoint']
+)
+
+
+# 3. GAUGE 
+LATEST_RESPONSE_TIME = Gauge(
+    'airport_add_response_time_seconds', 
+    'Tempo di risposta ultima chiamata add_airport', 
+    ['endpoint']
+)
+
+# 4. TOTAL HTTP REQUESTS COUNTER
+HTTP_REQUESTS_TOTAL = Counter(
+    'http_requests_total', 
+    'Totale richieste HTTP gestite', 
+    ['method', 'endpoint', 'status_code']
+)
+
+# 3. GAUGE 
+LATEST_RESPONSE_TIME_BACKGROUNT_TASK = Gauge(
+    'background_task_response_time_seconds', 
+    'Tempo di risposta ultima chiamata background task'
+)
+
+# --- gRPC Service for deleting user interests ---
 class DeleteUserInterestsHandler(user_service_pb2_grpc.DeleteUserInterestsServiceServicer):
     def DeleteUserInterests(self, request, context):
         email = request.email
@@ -80,6 +126,7 @@ class DeleteUserInterestsHandler(user_service_pb2_grpc.DeleteUserInterestsServic
 
             return user_service_pb2.DeleteUserInterestsResponse(status=0, message="User interests deleted successfully")
 
+# --- gRPC Server Setup ---
 def run_grpc_server():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     user_service_pb2_grpc.add_DeleteUserInterestsServiceServicer_to_server(DeleteUserInterestsHandler(), server)
@@ -100,7 +147,7 @@ producer_config = {
 
 extensions.kafka_producer = KafkaProducer(producer_config)
 
-# --- Helper per il Task di Background ---
+# --- Helper Background Task ---
 def background_fetch_and_notify(app, interests, user_email):
     """
     Esegue il fetch parallelo dei dati OpenSky, salva su DB e notifica Kafka.
@@ -109,67 +156,86 @@ def background_fetch_and_notify(app, interests, user_email):
     # È fondamentale ricreare il contesto dell'applicazione dentro il thread
     # per accedere al database e alla configurazione.
     with app.app_context():
-        logger.info(f"Starting background task for user {user_email} with {len(interests)} airports.")
-        
-        fetched_results = []
-        airports_without_flights = []
+        with LATEST_RESPONSE_TIME_BACKGROUNT_TASK.time():
+            logger.info(f"Starting background task for user {user_email} with {len(interests)} airports.")
+            fetched_results = []
+            airports_without_flights = []
+            # 1. Parallelizzazione delle chiamate API
+            # Usiamo max_workers=5 per non sovraccaricare l'API esterna
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                # Mappa ogni future al dizionario dell'interesse corrispondente
+                future_to_interest = {
+                    executor.submit(tasks.fetch_data, interest.get('icao')): interest 
+                    for interest in interests
+                }
 
-        # 1. Parallelizzazione delle chiamate API
-        # Usiamo max_workers=5 per non sovraccaricare l'API esterna
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            # Mappa ogni future al dizionario dell'interesse corrispondente
-            future_to_interest = {
-                executor.submit(tasks.fetch_data, interest.get('icao')): interest 
-                for interest in interests
-            }
+                for future in as_completed(future_to_interest):
+                    interest = future_to_interest[future]
+                    icao = interest.get('icao')
 
-            for future in as_completed(future_to_interest):
-                interest = future_to_interest[future]
-                icao = interest.get('icao')
-                
+                    try:
+                        # Qui è dove scattano le eccezioni
+                        flights_data = future.result()
+                    
+                        interest['flights_count'] = len(flights_data)
+                        if flights_data:
+                            fetched_results.extend(flights_data)
+                        else:
+                            airports_without_flights.append(icao)
+
+                    except CircuitBreakerOpenException:
+                        ERROR_COUNT_OPENSKY.labels(endpoint='/airport-of-interest/add').inc()
+                        logger.error(f"Circuit Breaker OPEN for {icao}. Skipping fetch.")
+                        interest['flights_count'] = 0
+                    
+                    except FileNotFoundError:
+                        logger.error(f"SECRETS MISSING processing {icao}. Cannot fetch token.")
+                        interest['flights_count'] = 0
+                    
+                    except Exception as e:
+                        logger.error(f"Generic error processing {icao}: {e}")
+                        interest['flights_count'] = 0
+
+            if airports_without_flights:
+                logger.info(f"No flights found for airports: {', '.join(airports_without_flights)}")
+
+            # 2. Salvataggio Bulk nel DB
+            if fetched_results:
                 try:
-                    # Qui è dove scattano le eccezioni
-                    flights_data = future.result()
-                    
-                    interest['flights_count'] = len(flights_data)
-                    if flights_data:
-                        fetched_results.extend(flights_data)
-                    else:
-                        airports_without_flights.append(icao)
+                    stmt = insert(Flights).values(fetched_results)
+                    stmt = stmt.prefix_with('IGNORE')  # Ignora duplicati
+                    extensions.db.session.execute(stmt)
+                    extensions.db.session.commit()
+                    logger.info(f"Saved {len(fetched_results)} flights to DB.")
+                except SQLAlchemyError as e:
+                    extensions.db.session.rollback()
+                    logger.error(f"DB Error during background insert: {e}")
 
-                except CircuitBreakerOpenException:
-                    logger.error(f"Circuit Breaker OPEN for {icao}. Skipping fetch.")
-                    interest['flights_count'] = 0
-                    
-                except FileNotFoundError:
-                    logger.error(f"SECRETS MISSING processing {icao}. Cannot fetch token.")
-                    interest['flights_count'] = 0
-                    
-                except Exception as e:
-                    logger.error(f"Generic error processing {icao}: {e}")
-                    interest['flights_count'] = 0
-
-        if airports_without_flights:
-            logger.info(f"No flights found for airports: {', '.join(airports_without_flights)}")
-
-        # 2. Salvataggio Bulk nel DB
-        if fetched_results:
+            # 3. Invio a Kafka
             try:
-                stmt = insert(Flights).values(fetched_results)
-                stmt = stmt.prefix_with('IGNORE')  # Ignora duplicati
-                extensions.db.session.execute(stmt)
-                extensions.db.session.commit()
-                logger.info(f"Saved {len(fetched_results)} flights to DB.")
-            except SQLAlchemyError as e:
-                extensions.db.session.rollback()
-                logger.error(f"DB Error during background insert: {e}")
+                tasks.send_to_kafka(interests, user_email)
+                logger.info("Notification sent to Kafka.")
+            except Exception as e:
+                logger.error(f"Kafka Error: {e}")
 
-        # 3. Invio a Kafka
-        try:
-            tasks.send_to_kafka(interests, user_email)
-            logger.info("Notification sent to Kafka.")
-        except Exception as e:
-            logger.error(f"Kafka Error: {e}")
+# --- Middleware HTTP requests counter ---
+@app.after_request
+def monitor_requests(response):
+   
+    if request.path == '/metrics':
+        return response
+
+    endpoint_name = request.endpoint if request.endpoint else 'unknown'
+
+    # 3. Incrementiamo
+    HTTP_REQUESTS_TOTAL.labels(
+        method=request.method,
+        endpoint=endpoint_name,
+        status_code=response.status_code
+    ).inc()
+
+    return response
+
 
 @app.before_request
 def headers_check():
@@ -188,81 +254,86 @@ def headers_check():
 # --- Routes ---
 @app.route('/airport-of-interest/add', methods=['POST'])
 def add_airports_of_interest():
-    """Aggiunge aeroporti di interesse.
+    with LATEST_RESPONSE_TIME.labels(endpoint='/airport-of-interest/add').time():
+        """Aggiunge aeroporti di interesse.
     
-    Flusso ottimizzato:
-    1. Check Cache
-    2. Salva preferenze su DB (Veloce)
-    3. Lancia thread background per fetch dati (Async)
-    4. Ritorna subito 202 Accepted
-    """
-    cache_key = f"{g.client_id}:airport_add:{g.request_id}"
-    cached_data = requests_cache.get(cache_key)
-    if cached_data:
-        response_json = json.loads(cached_data)
-        return jsonify(response_json['body']), response_json['status_code']
+        Flusso ottimizzato:
+        1. Check Cache
+        2. Salva preferenze su DB (Veloce)
+        3. Lancia thread background per fetch dati (Async)
+        4. Ritorna subito 202 Accepted
+        """
+        REQUEST_COUNT.labels(endpoint='/airport-of-interest/add').inc()
 
-    data = request.get_json() or {}
-    interests = data.get('airports')
+        cache_key = f"{g.client_id}:airport_add:{g.request_id}"
+        cached_data = requests_cache.get(cache_key)
+        if cached_data:
+            response_json = json.loads(cached_data)
+            return jsonify(response_json['body']), response_json['status_code']
 
-    if not interests:
-        return jsonify({"error": "No airports specified"}), 400
+        data = request.get_json() or {}
+        interests = data.get('airports')
 
-    # 1. Fase Sincrona: Salvataggio Preferenze Utente
-    # Deve essere fatto subito per garantire consistenza
-    try:
-        new_entries = []
-        for interest in interests:
-            new_entries.append(AirportsOfInterest(
-                email=g.email,
-                icao=interest.get('icao'),
-                high_value=interest.get('high_value'),
-                low_value=interest.get('low_value')
-            ))
+        if not interests:
+            return jsonify({"error": "No airports specified"}), 400
+
+        # 1. Fase Sincrona: Salvataggio Preferenze Utente
+        # Deve essere fatto subito per garantire consistenza
+        try:
+            new_entries = []
+            for interest in interests:
+                new_entries.append(AirportsOfInterest(
+                    email=g.email,
+                    icao=interest.get('icao'),
+                    high_value=interest.get('high_value'),
+                    low_value=interest.get('low_value')
+                ))
         
-        extensions.db.session.add_all(new_entries)
-        extensions.db.session.commit()
+            extensions.db.session.add_all(new_entries)
+            extensions.db.session.commit()
 
-    except IntegrityError:
-        extensions.db.session.rollback()
+        except IntegrityError:
+            extensions.db.session.rollback()
+            response_body = {
+                "error": "Duplicate entry",
+                "details": "One or more airports are already present."
+            }
+            ERROR_COUNT.labels(endpoint='/airport-of-interest/add').inc()
+            # Cache per errore
+            cache_packet = {"body": response_body, "status_code": 409}
+            requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
+            return jsonify(response_body), 409
+
+        except SQLAlchemyError as e:
+            extensions.db.session.rollback()
+            ERROR_COUNT.labels(endpoint='/airport-of-interest/add').inc()
+            return jsonify({"error": "Database error", "details": str(e)}), 500
+
+        # 2. Fase Asincrona: Avvio Thread
+        # Recuperiamo l'oggetto app reale perché 'current_app' è un proxy e non funziona nel thread
+        app = current_app._get_current_object()
+    
+        # Copiamo i dati necessari per evitare problemi di concorrenza/contesto
+        interests_copy = json.loads(json.dumps(interests))  # Deep copy veloce
+        user_email = g.email
+
+        thread = threading.Thread(
+            target=background_fetch_and_notify,
+            args=(app, interests_copy, user_email)
+        )
+        thread.start()
+
+        # 3. Risposta Immediata
         response_body = {
-            "error": "Duplicate entry",
-            "details": "One or more airports are already present."
+            "message": "Airports added successfully",
+            "details": "Data collection started in background"
         }
-        # Cache per errore
-        cache_packet = {"body": response_body, "status_code": 409}
+    
+        # Salviamo in cache anche la risposta di successo (idempotenza)
+        cache_packet = {"body": response_body, "status_code": 202}
         requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-        return jsonify(response_body), 409
-
-    except SQLAlchemyError as e:
-        extensions.db.session.rollback()
-        return jsonify({"error": "Database error", "details": str(e)}), 500
-
-    # 2. Fase Asincrona: Avvio Thread
-    # Recuperiamo l'oggetto app reale perché 'current_app' è un proxy e non funziona nel thread
-    app = current_app._get_current_object()
     
-    # Copiamo i dati necessari per evitare problemi di concorrenza/contesto
-    interests_copy = json.loads(json.dumps(interests))  # Deep copy veloce
-    user_email = g.email
-
-    thread = threading.Thread(
-        target=background_fetch_and_notify,
-        args=(app, interests_copy, user_email)
-    )
-    thread.start()
-
-    # 3. Risposta Immediata
-    response_body = {
-        "message": "Airports added successfully",
-        "details": "Data collection started in background"
-    }
-    
-    # Salviamo in cache anche la risposta di successo (idempotenza)
-    cache_packet = {"body": response_body, "status_code": 202}
-    requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
-    
-    return jsonify(response_body), 202
+        return jsonify(response_body), 202
 
 
 @app.route('/get-flights/latest', methods=['GET'])
@@ -347,6 +418,9 @@ def average():
 
 
 if __name__ == '__main__':
+    
+    start_http_server(8000)  # Porta per Prometheus
+    
     # Avvio del server gRPC in thread separato per non bloccare Flask
     grpc_thread = threading.Thread(target=run_grpc_server, daemon=True)
     grpc_thread.start()
