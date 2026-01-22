@@ -1,0 +1,24 @@
+# --- Alert Notifier System ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-notifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-notifier
+  template:
+    metadata:
+      labels:
+        app: alert-notifier
+    spec:
+      containers:
+      - name: alert-notifier
+        image: local/alert-notifier:v1
+        imagePullPolicy: Never
+        envFrom:
+        - secretRef:
+            name: app-secrets
+        - configMapRef:
+            name: app-config

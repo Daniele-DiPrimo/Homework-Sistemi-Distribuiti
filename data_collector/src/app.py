@@ -20,6 +20,7 @@ import tasks
 import grpc
 import sys
 from datetime import datetime, timedelta
+import time
 import redis
 import json
 from circuit_breaker import CircuitBreakerOpenException
@@ -55,8 +56,8 @@ with app.app_context():
 
 # --- Redis caches ---
 requests_cache = redis.Redis(
-    host=os.getenv('REDIS_HOST', 'data-cache'),
-    port=int(os.getenv('REDIS_PORT', 6379)),
+    host=os.getenv('DATA_REDIS_HOST', 'data-cache.default.svc.cluster.local'),
+    port=int(os.getenv('DATA_REDIS_HOST_PORT', 6379)),
     db=0,
     decode_responses=True,
 )
@@ -89,8 +90,13 @@ def run_grpc_server():
     server.wait_for_termination()
 
 # --- Kafka producer wrapper (confluent-kafka) ---
+bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '')
+
+if not bootstrap_servers:
+    logger.error("KAFKA_BOOTSTRAP_SERVERS environment variable not set.")
+
 producer_config = {
-    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
+    'bootstrap.servers': bootstrap_servers,
     'acks': 'all',
     'batch.size': 10000,
     'max.in.flight.requests.per.connection': 1,
@@ -198,6 +204,7 @@ def add_airports_of_interest():
     """
     cache_key = f"{g.client_id}:airport_add:{g.request_id}"
     cached_data = requests_cache.get(cache_key)
+    
     if cached_data:
         response_json = json.loads(cached_data)
         return jsonify(response_json['body']), response_json['status_code']

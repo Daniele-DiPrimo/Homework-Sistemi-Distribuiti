@@ -25,8 +25,14 @@ SENDER_EMAIL = os.getenv('SENDER_EMAIL', '')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
 
 # Kafka consumer configuration
+
+bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '')
+
+if not bootstrap_servers:
+    logger.error("KAFKA_BOOTSTRAP_SERVERS environment variable not set.")
+
 consumer_config = {
-    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
+    'bootstrap.servers': bootstrap_servers,
     'group.id': 'group2',
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,

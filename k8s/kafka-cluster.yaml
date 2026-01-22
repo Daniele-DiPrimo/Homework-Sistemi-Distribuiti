@@ -32,6 +32,7 @@ spec:
       containers:
       - name: kafka
         image: confluentinc/cp-kafka:7.4.0
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9092
         - containerPort: 9093
@@ -67,6 +68,12 @@ spec:
         volumeMounts:
         - name: kafka-data
           mountPath: /var/lib/kafka/data
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
   volumeClaimTemplates:
   - metadata:
       name: kafka-data

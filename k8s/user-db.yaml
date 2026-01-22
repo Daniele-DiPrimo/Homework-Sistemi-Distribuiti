@@ -1,0 +1,56 @@
+# --- User DB ---
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-db
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: user-db
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: user-db
+spec:
+  serviceName: "user-db"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-db
+  template:
+    metadata:
+      labels:
+        app: user-db
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:10.11
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MARIADB_ROOT_PASSWORD
+          valueFrom: { secretKeyRef: { name: app-secrets, key: MARIADB_ROOT_PASSWORD } }
+        - name: MARIADB_USER
+          valueFrom: { configMapKeyRef: { name: app-config, key: USER_DB } }
+        - name: MARIADB_PASSWORD
+          valueFrom: { secretKeyRef: { name: app-secrets, key: PASSWORD_DB } }
+        - name: MARIADB_DATABASE
+          valueFrom: { configMapKeyRef: { name: app-config, key: NAME_DB } }
+        volumeMounts:
+        - name: userdb-data
+          mountPath: /var/lib/mysql
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "mariadb-admin ping -h localhost -u root -p$MARIADB_ROOT_PASSWORD"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 10
+  volumeClaimTemplates:
+  - metadata:
+      name: userdb-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources: { requests: { storage: 1Gi } }

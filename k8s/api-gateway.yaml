@@ -34,6 +34,7 @@ spec:
       containers:
       - name: gateway
         image: local/api-gateway:v1
+        imagePullPolicy: Never
         ports:
         - containerPort: 80
         - containerPort: 443
@@ -61,42 +62,3 @@ spec:
             path: nginx.crt
           - key: nginx.key
             path: nginx.key
-
-# --- Kafka UI ---
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kafka-ui
-spec:
-  type: NodePort
-  ports:
-  - name: http      # Aggiungo il nome anche qui per coerenza, anche se con una sola porta non è obbligatorio
-    port: 8080
-    targetPort: 8080
-    nodePort: 30081
-  selector:
-    app: kafka-ui
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kafka-ui
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: kafka-ui
-  template:
-    metadata:
-      labels:
-        app: kafka-ui
-    spec:
-      containers:
-      - name: kafka-ui
-        image: provectuslabs/kafka-ui:latest
-        env:
-        - name: KAFKA_CLUSTERS_0_NAME
-          value: local
-        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
-          value: "kafka-0.kafka-headless:9092,kafka-1.kafka-headless:9092,kafka-2.kafka-headless:9092"

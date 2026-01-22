@@ -55,15 +55,15 @@ with app.app_context():
 
 # Redis per idempotenza delle API
 redis_client = redis.Redis(
-    host=os.getenv('REDIS_HOST', 'user-cache'),
-    port=int(os.getenv('REDIS_PORT', 6379)),
+    host=os.getenv('USER_REDIS_HOST', 'user-cache.default.svc.cluster.local'),
+    port=int(os.getenv('USER_REDIS_HOST_PORT', 6379)),
     db=0,
     decode_responses=True,
 )
 
 black_list = redis.Redis(
-    host=os.getenv('REDIS_HOST', 'user-cache'),
-    port=int(os.getenv('REDIS_PORT', 6379)),
+    host=os.getenv('USER_REDIS_HOST', 'user-cache.default.svc.cluster.local'),
+    port=int(os.getenv('USER_REDIS_HOST_PORT', 6379)),
     db=1,
     decode_responses=True,
 )
@@ -84,7 +84,9 @@ service_config = """{
 }"""
 
 options = [('grpc.service_config', service_config)]
-channel = grpc.insecure_channel('data-collector:50051', options=options)
+gRPC_HOST = os.getenv('gRPC_HOST', '')
+gRPC_HOST_PORT = os.getenv('gRPC_HOST_PORT', '')
+channel = grpc.insecure_channel(f'{gRPC_HOST}:{gRPC_HOST_PORT}', options=options)
 stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 
 @app.route('/auth/login', methods=['POST'])

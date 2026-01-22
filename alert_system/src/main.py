@@ -6,6 +6,7 @@ e pubblica eventi su `to-notify` per le notifiche via email.
 Il comportamento è: leggere, valutare interessi, produrre messaggi di notifica.
 """
 
+import os
 from confluent_kafka import Consumer, KafkaError, Producer
 import json
 import logging
@@ -13,9 +14,15 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
+bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '')
+
+if not bootstrap_servers:
+    logger.error("KAFKA_BOOTSTRAP_SERVERS environment variable not set.")
+
 # Consumer configuration
 consumer_config = {
-    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
+    'bootstrap.servers': bootstrap_servers,
     'group.id': 'group1',
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
@@ -23,7 +30,7 @@ consumer_config = {
 }
 
 producer_config = {
-    'bootstrap.servers': 'broker-kafka-1:9092,broker-kafka-2:9092,broker-kafka-3:9092',
+    'bootstrap.servers': bootstrap_servers,
     'linger.ms': 100,
 }
 

@@ -1,0 +1,52 @@
+# --- User Manager ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-manager
+spec:
+  ports:
+  - port: 5000
+  selector:
+    app: user-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-manager
+  template:
+    metadata:
+      labels:
+        app: user-manager
+    spec:
+      containers:
+      - name: user-manager
+        image: local/user-manager:v1
+        imagePullPolicy: Never
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        envFrom:
+        - secretRef:
+            name: app-secrets
+        - configMapRef:
+            name: app-config
+        volumeMounts:
+        - name: secret-vol
+          mountPath: "/secrets"
+          readOnly: true
+      volumes:
+      - name: secret-vol
+        secret:
+          secretName: app-secrets
+          items:
+          - key: private_key.pem
+            path: private_key.pem

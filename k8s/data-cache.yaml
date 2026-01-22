@@ -1,0 +1,35 @@
+# --- Data Cache ---
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-cache
+spec:
+  ports:
+  - port: 6379
+  selector:
+    app: data-cache
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-cache
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-cache
+  template:
+    metadata:
+      labels:
+        app: data-cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:alpine
+        imagePullPolicy: IfNotPresent
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 5
+          periodSeconds: 3

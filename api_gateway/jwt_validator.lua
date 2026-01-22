@@ -50,7 +50,7 @@ if client_id then
     -- Nel tuo caso sembra tu usi "data-cache" nelle variabili d'ambiente Python,
     -- verifica se il service name nel docker-compose è "data-cache" o "redis_db".
     -- Qui metto "data-cache" ipotizzando sia quello il nome del container.
-    local ok, err = red:connect("user-cache", 6379)
+    local ok, err = red:connect("user-cache.default.svc.cluster.local", 6379)
 
     if not ok then
         -- Se Redis è giù, stampiamo errore ma lasciamo passare (Fail Open) per non bloccare tutto

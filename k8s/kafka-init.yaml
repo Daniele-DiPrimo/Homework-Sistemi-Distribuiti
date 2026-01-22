@@ -9,6 +9,7 @@ spec:
       containers:
       - name: init
         image: confluentinc/cp-kafka:7.4.0
+        imagePullPolicy: IfNotPresent
         command: ["/bin/bash", "-c"]
         args:
           - |
