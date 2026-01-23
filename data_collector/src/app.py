@@ -150,6 +150,7 @@ class DeleteUserInterestsHandler(user_service_pb2_grpc.DeleteUserInterestsServic
                 logger.error(f"Database error during deletion of interests for {email}: {str(e)}")
                 return user_service_pb2.DeleteUserInterestsResponse(status=1, message="Database error")
 
+            logging.info(f"Deleted interests for user {email}")
             return user_service_pb2.DeleteUserInterestsResponse(status=0, message="User interests deleted successfully")
 
 # --- gRPC Server Setup ---

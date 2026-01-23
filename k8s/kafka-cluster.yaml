@@ -40,8 +40,7 @@ spec:
         - name: KAFKA_NODE_ID
           valueFrom:
             fieldRef:
-              fieldPath: metadata.labels['apps.kubernetes.io/pod-index'] # K8s 1.28+ feature
-        # Fallback per versioni vecchie di K8s o setup complessi:
+              fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
         - name: CLUSTER_ID
           value: 'MkU3OEVBNTcwNTJENDM2Qk'
         - name: KAFKA_PROCESS_ROLES
@@ -58,7 +57,6 @@ spec:
         - sh
         - -c
         - |
-          # Calcolo ID e indirizzi dinamici
           export KAFKA_NODE_ID=${HOSTNAME##*-}
           export KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOSTNAME}.kafka-headless.default.svc.cluster.local:9092
           export KAFKA_LOG_DIRS=/var/lib/kafka/data
@@ -68,12 +66,34 @@ spec:
         volumeMounts:
         - name: kafka-data
           mountPath: /var/lib/kafka/data
+        
+        # --- MODIFICA QUI: LIVENESS PROBE AGGIUNTA ---
+        # "Sei vivo?" Se fallisce per troppo tempo, RIAVVIA il pod.
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 60  # Diamo 1 minuto intero per il boot iniziale
+          periodSeconds: 20        # Controlla ogni 20 secondi (meno stress)
+          timeoutSeconds: 5
+          failureThreshold: 3      # Fallisci 3 volte prima di uccidere (totale 60s di tolleranza)
+
+        # --- MODIFICA QUI: READINESS PROBE RILASSATA ---
+        # "Sei pronto a ricevere dati?" Se fallisce, togli dal Load Balancer (ma non riavviare).
         readinessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 15
+          initialDelaySeconds: 60  # Aspetta 1 minuto prima di chiedere se è pronto
           periodSeconds: 10
           timeoutSeconds: 5
+          failureThreshold: 3
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: kafka
   volumeClaimTemplates:
   - metadata:
       name: kafka-data

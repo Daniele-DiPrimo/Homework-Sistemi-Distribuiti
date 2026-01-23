@@ -35,3 +35,8 @@ class KafkaProducer:
         # poll per invocare i callback di delivery
         self.producer.poll(0)
 
+    def flush(self):
+        """Attende che tutti i messaggi in coda siano inviati."""
+        self.producer.flush()
+
+

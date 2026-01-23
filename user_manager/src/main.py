@@ -98,7 +98,7 @@ black_list = redis.Redis(
 service_config = """{
     "loadBalancingConfig": [{"round_robin": {}}],
     "methodConfig": [{
-        "name": [{"service": "DeleteUserInterestsService"}],
+        "name": [{"service": ""}],
         "retryPolicy": {
             "maxAttempts": 3,
             "initialBackoff": "0.5s",
@@ -121,6 +121,7 @@ gRPC_HOST_PORT = os.getenv('gRPC_HOST_PORT', '50051')
 target = f'dns:///{gRPC_HOST}:{gRPC_HOST_PORT}'
 
 channel = grpc.insecure_channel(target, options=options)
+
 stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 
 # --- Prometheus Metrics Variables ---
@@ -270,6 +271,6 @@ def delete_user():
 
 if __name__ == '__main__':
 
-    start_http_server(8001)
+    start_http_server(8000) 
     logger.info("REST Server listening on port 5000")
     app.run(host='0.0.0.0', port=5000, debug=False)          

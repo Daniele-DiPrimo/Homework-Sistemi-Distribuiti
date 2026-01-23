@@ -153,87 +153,96 @@ def send_to_kafka(message, email):
     logger.info("Sent aggregated statistics to Kafka.")
 
 
-@extensions.scheduler.task('interval', id='update_db', hours=8)
+#@extensions.scheduler.task('interval', id='update_db', hours=8)
 def update_database():
     """Task schedulato che aggiorna il DB e invia statistiche per ogni utente."""
-    with extensions.scheduler.app.app_context():
-        logger.info("--- Updating database... ---")
-        try:
-            # Recupero tutti gli interessi dal DB
-            stmt = extensions.db.select(AirportsOfInterest)
-            all_interests_orm = extensions.db.session.execute(stmt).scalars().all()
+    #with extensions.scheduler.app.app_context():
+    logger.info("--- Updating database... ---")
+    try:
+        # Recupero tutti gli interessi dal DB
+        stmt = extensions.db.select(AirportsOfInterest)
+        all_interests_orm = extensions.db.session.execute(stmt).scalars().all()
             
-            if not all_interests_orm:
-                logger.info("--- No interests found in DB. ---")
-                return
+        if not all_interests_orm:
+            logger.info("--- No interests found in DB. ---")
+            return
 
-            # Converto ORM -> List of Dicts per lavorarci in memoria
-            all_interests_dicts = [i.to_dict() for i in all_interests_orm]
+        # Converto ORM -> List of Dicts per lavorarci in memoria
+        all_interests_dicts = [i.to_dict() for i in all_interests_orm]
 
-            # Identifico Aeroporti UNICI (Deduplicazione)
-            unique_icaos = {i['icao'] for i in all_interests_dicts}
-            logger.info(f"Unique airports to fetch: {len(unique_icaos)}")
+        # Identifico Aeroporti UNICI (Deduplicazione)
+        unique_icaos = {i['icao'] for i in all_interests_dicts}
+        logger.info(f"Unique airports to fetch: {len(unique_icaos)}")
 
-            # Mappe temporanee
-            icao_counts_map = {} 
-            all_flights_to_insert = []
+        # Mappe temporanee
+        icao_counts_map = {} 
+        all_flights_to_insert = []
 
-            # Fetch Parallelo (max 5 thread)
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_icao = {
-                    executor.submit(fetch_data, icao): icao 
-                    for icao in unique_icaos
-                }
+        # Fetch Parallelo (max 5 thread)
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_icao = {
+                executor.submit(fetch_data, icao): icao 
+                for icao in unique_icaos
+            }
 
-                for future in as_completed(future_to_icao):
-                    icao = future_to_icao[future]
-                    try:
-                        # Qui chiamiamo result() e catturiamo le eccezioni specifiche
-                        flights = future.result()
+            for future in as_completed(future_to_icao):
+                icao = future_to_icao[future]
+                try:
+                    # Qui chiamiamo result() e catturiamo le eccezioni specifiche
+                    flights = future.result()
                         
-                        icao_counts_map[icao] = len(flights)
-                        if flights:
-                            all_flights_to_insert.extend(flights)
+                    icao_counts_map[icao] = len(flights)
+                    if flights:
+                        all_flights_to_insert.extend(flights)
 
-                    # --- GESTIONE ERRORI SPECIFICA ---
-                    except CircuitBreakerOpenException:
-                        logger.warning(f"Skipping {icao}: Circuit Breaker is OPEN.")
-                        icao_counts_map[icao] = 0
+                # --- GESTIONE ERRORI SPECIFICA ---
+                except CircuitBreakerOpenException:
+                    logger.warning(f"Skipping {icao}: Circuit Breaker is OPEN.")
+                    icao_counts_map[icao] = 0
+                    return False
                         
-                    except FileNotFoundError:
-                        logger.critical(f"Failed {icao}: Secrets file not found!")
-                        icao_counts_map[icao] = 0
+                except FileNotFoundError:
+                    logger.critical(f"Failed {icao}: Secrets file not found!")
+                    icao_counts_map[icao] = 0
+                    return False
                         
-                    except Exception as e:
-                        logger.error(f"Generic error fetching {icao}: {e}")
-                        icao_counts_map[icao] = 0
+                except Exception as e:
+                    logger.error(f"Generic error fetching {icao}: {e}")
+                    icao_counts_map[icao] = 0
 
-            # Bulk Insert nel DB
-            if all_flights_to_insert:
-                logger.info(f"Inserting {len(all_flights_to_insert)} flights into DB...")
-                stmt = insert(Flights).values(all_flights_to_insert)
-                stmt = stmt.prefix_with('IGNORE')
-                extensions.db.session.execute(stmt)
-                extensions.db.session.commit()
+        # Bulk Insert nel DB
+        if all_flights_to_insert:
+            logger.info(f"Inserting {len(all_flights_to_insert)} flights into DB...")
+            stmt = insert(Flights).values(all_flights_to_insert)
+            stmt = stmt.prefix_with('IGNORE')
+            extensions.db.session.execute(stmt)
+            extensions.db.session.commit()
 
-            # Distribuzione Kafka per Utente
-            users_emails = {i['email'] for i in all_interests_dicts}
+        # Distribuzione Kafka per Utente
+        users_emails = {i['email'] for i in all_interests_dicts}
             
-            for email in users_emails:
-                # Filtro gli interessi di questo specifico utente
-                user_payload = [x for x in all_interests_dicts if x['email'] == email]
+        for email in users_emails:
+            # Filtro gli interessi di questo specifico utente
+            user_payload = [x for x in all_interests_dicts if x['email'] == email]
                 
-                # Arricchisco i dati leggendo dalla memoria
-                for item in user_payload:
-                    item['flights_count'] = icao_counts_map.get(item['icao'], 0)
-                    item.pop('email', None)
+            # Arricchisco i dati leggendo dalla memoria
+            for item in user_payload:
+                item['flights_count'] = icao_counts_map.get(item['icao'], 0)
+                item.pop('email', None)
 
-                # Invio il pacchetto specifico dell'utente
-                send_to_kafka(user_payload, email)
+            # Invio il pacchetto specifico dell'utente
+            send_to_kafka(user_payload, email)
+            # faccio il flush per evitare di perdere messaggi dopo che il pod temporaneo termina
+            extensions.kafka_producer.flush()
 
-            logger.info("--- Update done successfully. ---")
+        logger.info("--- Update done successfully. ---")
 
-        except Exception as e:
-            # Rollback generale in caso di errore critico
-            extensions.db.session.rollback()
-            logger.error(f"Critical error in update task: {e}")
+        return True
+
+    except Exception as e:
+        # Rollback generale in caso di errore critico
+        extensions.db.session.rollback()
+        logger.error(f"Critical error in update task: {e}")
+        return False
+
+    

@@ -108,9 +108,7 @@ kubectl create configmap app-config \
   --from-literal=USER_MANAGER_PORT="$USER_MANAGER_PORT" \
   --from-literal=USER_MANAGER_HOST_PORT="$USER_MANAGER_HOST_PORT" \
   --from-literal=USER_DB_HOST_PORT="$USER_DB_HOST_PORT" \
-  --from-literal=gRPC_HOST="$gRPC_HOST" \
-  --from-literal=gRPC_HOST_PORT="$gRPC_HOST_PORT" \
-  --from-literal=gRPC_PORT="$gRPC_PORT" \
+  --from-literal=gRPC_TARGET="$gRPC_TARGET" \
   --from-literal=REDIS_PORT="$REDIS_PORT" \
   --from-literal=USER_REDIS_HOST="$USER_REDIS_HOST" \
   --from-literal=DATA_REDIS_HOST="$DATA_REDIS_HOST" \
@@ -146,24 +144,24 @@ echo -e "${CYAN}Attesa avvio Infrastruttura (Kafka, DB, Redis)...${NC}"
 
 # Attesa Kafka
 echo "Waiting for Kafka..."
-kubectl rollout status statefulset/kafka --timeout=300s
+kubectl rollout status statefulset/kafka --timeout=600s
 
 # Attesa DB
 echo "Waiting for Flights DB..."
-kubectl rollout status statefulset/flights-db --timeout=180s
+kubectl rollout status statefulset/flights-db --timeout=300s
 echo "Waiting for User DB..."
-kubectl rollout status statefulset/user-db --timeout=180s
+kubectl rollout status statefulset/user-db --timeout=300s
 
 # Attesa Cache
 echo "Waiting for Redis Caches..."
-kubectl wait --for=condition=available --timeout=60s deployment/user-cache
-kubectl wait --for=condition=available --timeout=60s deployment/data-cache
+kubectl wait --for=condition=available --timeout=120s deployment/user-cache
+kubectl wait --for=condition=available --timeout=120s deployment/data-cache
 
 # Verifica Readiness
 echo -e "${CYAN}Verifica connettività servizi (Readiness Probes)...${NC}"
-kubectl wait --for=condition=ready pod -l app=kafka --timeout=60s
-kubectl wait --for=condition=ready pod -l app=flights-db --timeout=60s
-kubectl wait --for=condition=ready pod -l app=user-db --timeout=60s
+kubectl wait --for=condition=ready pod -l app=kafka --timeout=120s
+kubectl wait --for=condition=ready pod -l app=flights-db --timeout=120s
+kubectl wait --for=condition=ready pod -l app=user-db --timeout=120s
 
 echo -e "${GREEN}>>> Infrastruttura PRONTA.${NC}"
 
@@ -175,7 +173,7 @@ kubectl delete job kafka-init --ignore-not-found
 kubectl apply -f ${MANIFEST_DIR}/kafka-init.yaml
 
 echo "Waiting for Kafka Init Job..."
-kubectl wait --for=condition=complete job/kafka-init --timeout=60s
+kubectl wait --for=condition=complete job/kafka-init --timeout=120s
 echo -e "${GREEN}>>> Topic Kafka creati.${NC}"
 
 echo -e "${YELLOW}[7/7] Deployment Applicazioni...${NC}"
@@ -187,8 +185,8 @@ kubectl rollout restart deployment user-manager data-collector alert-system aler
 # Backend Core
 kubectl apply -f ${MANIFEST_DIR}/user-manager.yaml
 kubectl apply -f ${MANIFEST_DIR}/data-collector.yaml
-kubectl wait --for=condition=available --timeout=120s deployment/user-manager
-kubectl wait --for=condition=available --timeout=120s deployment/data-collector
+kubectl wait --for=condition=available --timeout=180s deployment/user-manager
+kubectl wait --for=condition=available --timeout=180s deployment/data-collector
 
 # Consumers
 kubectl apply -f ${MANIFEST_DIR}/alert-system.yaml
@@ -197,11 +195,12 @@ kubectl apply -f ${MANIFEST_DIR}/alert-notifier-system.yaml
 # API Gateway
 echo "Deploying API Gateway..."
 kubectl apply -f ${MANIFEST_DIR}/api-gateway.yaml
-kubectl wait --for=condition=available --timeout=60s deployment/api-gateway
+kubectl wait --for=condition=available --timeout=120s deployment/api-gateway
 
 # Prometheus
 echo "Deploying Prometheus..."
 kubectl apply -f ${MANIFEST_DIR}/prometheus.yaml
+kubectl apply -f ${MANIFEST_DIR}/data-collector-cronjob.yaml
 
 # Kafka-UI
 echo "Deploying Kafka-UI..."

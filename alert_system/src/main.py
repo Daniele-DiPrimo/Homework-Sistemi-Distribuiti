@@ -91,8 +91,9 @@ def send_to_notify_system(message: dict):
                 continue
 
         # Produco il messaggio per il topic di notifica
-        producer.produce(NOTIFY_TOPIC, json.dumps(payload).encode('utf-8'), callback=delivery_report)
-        producer.poll(0)
+        if(payload['interests']):
+            producer.produce(NOTIFY_TOPIC, json.dumps(payload).encode('utf-8'), callback=delivery_report)
+            producer.poll(0)
 
     except KeyError as e:
         logger.error(f"Missing key in interest object: {e}")

@@ -1,14 +1,24 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
+# --- NODO DI CONTROLLO (Master) ---
 - role: control-plane
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "ingress-ready=true"
   extraPortMappings:
+  # Espone SOLO l'API Gateway (Nginx)
   - containerPort: 30080
-    hostPort: 80      # Gateway HTTP
+    hostPort: 80
     protocol: TCP
   - containerPort: 30443
-    hostPort: 443     # Gateway HTTPS
+    hostPort: 443
     protocol: TCP
-  - containerPort: 30081
-    hostPort: 8080    # Kafka UI
-    protocol: TCP
+
+# --- NODI WORKER (Per distribuire il carico) ---
+- role: worker
+- role: worker
+- role: worker

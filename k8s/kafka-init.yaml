@@ -13,13 +13,23 @@ spec:
         command: ["/bin/bash", "-c"]
         args:
           - |
-            echo "Waiting for Kafka..."
-            sleep 40 # Attesa prudenziale per avvio cluster
+            # 1. Usiamo i nomi FQDN (Completi) per evitare errori DNS
+            BOOTSTRAP="kafka-0.kafka-headless.default.svc.cluster.local:9092,kafka-1.kafka-headless.default.svc.cluster.local:9092,kafka-2.kafka-headless.default.svc.cluster.local:9092"
             
-            BOOTSTRAP="kafka-0.kafka-headless:9092"
-            
-            echo "Creating topics..."
+            echo "Bootstrap Servers: $BOOTSTRAP"
+            echo "Waiting for Kafka to be reachable..."
+
+            # 2. Ciclo di attesa: Non proseguiamo finché Kafka non risponde al comando --list
+            # Questo assorbe i ritardi del DNS e dell'elezione del Controller
+            until kafka-topics --bootstrap-server $BOOTSTRAP --list; do
+              echo "Kafka connection failed/timed out. Retrying in 5 seconds..."
+              sleep 5
+            done
+
+            echo "SUCCESS: Kafka is reachable! Creating topics..."
+
+            # 3. Creazione Topic (Idempotente grazie a --if-not-exists)
             kafka-topics --bootstrap-server $BOOTSTRAP --create --if-not-exists --topic to-alert-system --replication-factor 3 --partitions 3
             kafka-topics --bootstrap-server $BOOTSTRAP --create --if-not-exists --topic to-notify --replication-factor 3 --partitions 3
             
-            echo "Done."
+            echo "Done. Topics created."

@@ -24,12 +24,12 @@ spec:
         app: user-manager
       annotations: 
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8001"
+        prometheus.io/port: "8000"
     spec:
       containers:
       - name: user-manager
         image: local/user-manager:v1
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         resources:
           requests:
             memory: "256Mi"
@@ -65,6 +65,13 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 2
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway # Se non c'è spazio, ammassali pur di partire
+          labelSelector:
+            matchLabels:
+              app: user-manager
       volumes:
       - name: secret-vol
         secret:

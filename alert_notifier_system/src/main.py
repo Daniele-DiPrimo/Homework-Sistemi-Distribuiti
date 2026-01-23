@@ -77,7 +77,7 @@ def send_email(notification: dict) -> bool:
         lines.append("Best regards.")
         msg.set_content("\n".join(lines))
     else:
-        msg.set_content("No interesting events to notify.")
+        return False
 
     context = ssl.create_default_context()
     try:
