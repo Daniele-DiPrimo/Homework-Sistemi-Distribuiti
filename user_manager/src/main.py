@@ -18,6 +18,31 @@ import jwt
 import uuid
 from prometheus_client import start_http_server, Counter
 
+# --- FILTRO LOG INTELLIGENTE ---
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        
+        # Se è una chiamata a /health...
+        if '/health' in msg:
+            # ...e il codice è 200 (Successo), ALLORA nascondilo (return False).
+            # Nota: cerchiamo " 200 " con gli spazi per non confonderlo 
+            # con un pezzo di data o IP.
+            if ' 200 ' in msg:
+                return False
+            
+            # Se è /health ma il codice è 404, 500, 503... MOSTRALO!
+            return True
+            
+        # Per tutte le altre rotte, mostra sempre.
+        return True
+
+# Recuperiamo il logger di Werkzeug (il server di Flask)
+werkzeug_logger = logging.getLogger('werkzeug')
+
+# Aggiungiamo il nostro filtro
+werkzeug_logger.addFilter(HealthCheckFilter())
+
 logger = logging.getLogger(__name__)
 
 # Upload private key for JWT signature
@@ -71,6 +96,7 @@ black_list = redis.Redis(
 
 # --- gRPC client setup for user validation ---
 service_config = """{
+    "loadBalancingConfig": [{"round_robin": {}}],
     "methodConfig": [{
         "name": [{"service": "DeleteUserInterestsService"}],
         "retryPolicy": {
@@ -78,23 +104,32 @@ service_config = """{
             "initialBackoff": "0.5s",
             "maxBackoff": "3s",
             "backoffMultiplier": 2,
-            "retryableStatusCodes": ["UNAVAILABLE"]
+            "retryableStatusCodes": ["UNAVAILABLE", "RESOURCE_EXHAUSTED"]
         },
         "timeout": "5s"
     }]
 }"""
 
-options = [('grpc.service_config', service_config)]
-gRPC_HOST = os.getenv('gRPC_HOST', '')
-gRPC_HOST_PORT = os.getenv('gRPC_HOST_PORT', '')
-channel = grpc.insecure_channel(f'{gRPC_HOST}:{gRPC_HOST_PORT}', options=options)
+options=[
+    ('grpc.service_config', service_config),
+    ('grpc.keepalive_time_ms', 10000),  # Ping ogni 10s
+    ('grpc.keepalive_timeout_ms', 5000),
+]
+
+gRPC_HOST = os.getenv('gRPC_HOST', 'data-collector-headless.default.svc.cluster.local')
+gRPC_HOST_PORT = os.getenv('gRPC_HOST_PORT', '50051')
+target = f'dns:///{gRPC_HOST}:{gRPC_HOST_PORT}'
+
+channel = grpc.insecure_channel(target, options=options)
 stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 
 # --- Prometheus Metrics Variables ---
 REGISTER_REQUEST_COUNT = Counter('request_add_user', 'Richieste Aggiunta Utente', ['endpoint'])
 LOGIN_REQUEST_COUNT = Counter('request_login_user', 'Richieste Login Utente', ['endpoint'])
 
-
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "ok"}), 200
 
 @app.route('/auth/login', methods=['POST'])
 def login_user():

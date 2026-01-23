@@ -35,3 +35,15 @@ spec:
           value: local
         - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
           value: "kafka-0.kafka-headless:9092,kafka-1.kafka-headless:9092,kafka-2.kafka-headless:9092"
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 15 # Dagli tempo di fare il boot Java
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10

@@ -30,6 +30,31 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from prometheus_client import start_http_server, Counter, Gauge
 
+# --- FILTRO LOG INTELLIGENTE ---
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        msg = record.getMessage()
+        
+        # Se è una chiamata a /health...
+        if '/health' in msg:
+            # ...e il codice è 200 (Successo), ALLORA nascondilo (return False).
+            # Nota: cerchiamo " 200 " con gli spazi per non confonderlo 
+            # con un pezzo di data o IP.
+            if ' 200 ' in msg:
+                return False
+            
+            # Se è /health ma il codice è 404, 500, 503... MOSTRALO!
+            return True
+            
+        # Per tutte le altre rotte, mostra sempre.
+        return True
+
+# Recuperiamo il logger di Werkzeug (il server di Flask)
+werkzeug_logger = logging.getLogger('werkzeug')
+
+# Aggiungiamo il nostro filtro
+werkzeug_logger.addFilter(HealthCheckFilter())
+
 logger = logging.getLogger(__name__)
 
 # Ensures we can import generated gRPC stubs in runtime
@@ -120,6 +145,7 @@ class DeleteUserInterestsHandler(user_service_pb2_grpc.DeleteUserInterestsServic
                 stmt = extensions.db.delete(AirportsOfInterest).where(AirportsOfInterest.email == email)
                 extensions.db.session.execute(stmt)
                 extensions.db.session.commit()
+                logger.info(f"Deleted interests for user {email}")
             except SQLAlchemyError as e:
                 logger.error(f"Database error during deletion of interests for {email}: {str(e)}")
                 return user_service_pb2.DeleteUserInterestsResponse(status=1, message="Database error")
@@ -128,10 +154,20 @@ class DeleteUserInterestsHandler(user_service_pb2_grpc.DeleteUserInterestsServic
 
 # --- gRPC Server Setup ---
 def run_grpc_server():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    server_options = [
+        ('grpc.keepalive_time_ms', 10000),          # Ping ogni 10s se inattivo
+        ('grpc.keepalive_timeout_ms', 5000),       # Timeout risposta ping 5s
+        ('grpc.keepalive_permit_without_calls', 1), # Pinga anche senza richieste in corso
+        ('grpc.http2.max_pings_without_data', 0),   # Permetti ping illimitati
+    ]
+
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10), options=server_options)
     user_service_pb2_grpc.add_DeleteUserInterestsServiceServicer_to_server(DeleteUserInterestsHandler(), server)
-    server.add_insecure_port('[::]:50051')
-    logger.info("gRPC Server listening on port 50051")
+
+    gRPC_HOST_PORT = os.getenv('gRPC_PORT', '50051')
+    server.add_insecure_port('[::]:' + gRPC_HOST_PORT)
+    logger.info("gRPC Server listening on port " + gRPC_HOST_PORT)
+    
     server.start()
     server.wait_for_termination()
 
@@ -223,6 +259,10 @@ def background_fetch_and_notify(app, interests, user_email):
             except Exception as e:
                 logger.error(f"Kafka Error: {e}")
 
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
 # --- Middleware HTTP requests counter ---
 @app.after_request
 def monitor_requests(response):
@@ -244,6 +284,9 @@ def monitor_requests(response):
 
 @app.before_request
 def headers_check():
+    if request.path in ['/health', '/metrics']:
+        return None # Lascia passare la richiesta senza fare nulla
+
     g.client_id = request.headers.get('X-Client-ID')
     g.request_id = request.headers.get('X-Request-ID')
     g.email = request.headers.get('X-User-Email')

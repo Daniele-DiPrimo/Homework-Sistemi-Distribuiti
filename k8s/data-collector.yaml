@@ -4,10 +4,21 @@ kind: Service
 metadata:
   name: data-collector
 spec:
+  type: ClusterIP
   ports:
   - name: http
     port: 5000
     targetPort: 5000
+  selector:
+    app: data-collector
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-collector-headless
+spec:
+  clusterIP: None
+  ports:
   - name: grpc
     port: 50051
     targetPort: 50051
@@ -19,7 +30,7 @@ kind: Deployment
 metadata:
   name: data-collector
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: data-collector
@@ -51,11 +62,25 @@ spec:
         - name: secret-vol
           mountPath: "/secrets"
           readOnly: true
+        # LIVENESS: Riavvia se incastrato per 15 secondi (3 tentativi * 5s)
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # READINESS: Isola se lento per 10 secondi
         readinessProbe:
-          tcpSocket:
-            port: 50051 # Controlla la porta gRPC
+          httpGet:
+            path: /health
+            port: 5000
           initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
       volumes:
       - name: secret-vol
         secret:

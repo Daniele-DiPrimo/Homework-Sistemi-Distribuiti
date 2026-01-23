@@ -14,7 +14,7 @@ kind: Deployment
 metadata:
   name: user-manager
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: user-manager
@@ -46,6 +46,25 @@ spec:
         - name: secret-vol
           mountPath: "/secrets"
           readOnly: true
+        # LIVENESS: Riavvia se incastrato per 15 secondi (3 tentativi * 5s)
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # READINESS: Isola se lento per 10 secondi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
       volumes:
       - name: secret-vol
         secret:

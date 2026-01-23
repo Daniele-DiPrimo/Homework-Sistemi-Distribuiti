@@ -190,10 +190,9 @@ kubectl apply -f ${MANIFEST_DIR}/data-collector.yaml
 kubectl wait --for=condition=available --timeout=120s deployment/user-manager
 kubectl wait --for=condition=available --timeout=120s deployment/data-collector
 
-# Consumers & UI
+# Consumers
 kubectl apply -f ${MANIFEST_DIR}/alert-system.yaml
 kubectl apply -f ${MANIFEST_DIR}/alert-notifier-system.yaml
-kubectl apply -f ${MANIFEST_DIR}/kafka-ui.yaml
 
 # API Gateway
 echo "Deploying API Gateway..."
@@ -201,7 +200,20 @@ kubectl apply -f ${MANIFEST_DIR}/api-gateway.yaml
 kubectl wait --for=condition=available --timeout=60s deployment/api-gateway
 
 # Prometheus
+echo "Deploying Prometheus..."
 kubectl apply -f ${MANIFEST_DIR}/prometheus.yaml
+
+# Kafka-UI
+echo "Deploying Kafka-UI..."
+kubectl apply -f ${MANIFEST_DIR}/kafka-ui.yaml
+
+echo -e "${CYAN}Attesa avvio servizi accessori (Kafka UI, Prometheus)...${NC}"
+
+# Attesa per Prometheus'
+kubectl wait --for=condition=available --timeout=300s deployment/prometheus-deployment
+
+# Attesa per Kafka UI
+kubectl wait --for=condition=available --timeout=300s deployment/kafka-ui
 
 echo -e "${GREEN}==================================================${NC}"
 echo -e "${GREEN}   MIGRAZIONE COMPLETATA CON SUCCESSO! 🚀${NC}"
