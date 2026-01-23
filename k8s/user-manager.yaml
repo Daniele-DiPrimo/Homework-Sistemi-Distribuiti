@@ -14,7 +14,7 @@ kind: Deployment
 metadata:
   name: user-manager
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: user-manager
@@ -24,12 +24,12 @@ spec:
         app: user-manager
       annotations: 
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8001"
+        prometheus.io/port: "8000"
     spec:
       containers:
       - name: user-manager
         image: local/user-manager:v1
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         resources:
           requests:
             memory: "256Mi"

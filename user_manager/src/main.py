@@ -70,25 +70,52 @@ black_list = redis.Redis(
 )
 
 # --- gRPC client setup for user validation ---
-service_config = """{
+target_address = os.getenv('gRPC_TARGET', '')
+
+if not target_address:
+    # Fallback per sviluppo locale o errore esplicito
+    print("⚠️  ATTENZIONE: Variabile gRPC_TARGET non trovata!")
+    target_address = 'localhost:50051'
+
+print(f"📡 gRPC Client connecting to: {target_address}")
+
+# --- 2. CONFIGURAZIONE AVANZATA (JSON) ---
+service_config = json.dumps({
+    # CRUCIALE: Abilita la distribuzione del carico su tutte le repliche (Full Mesh)
+    "loadBalancingConfig": [{"round_robin": {}}],
+    
     "methodConfig": [{
-        "name": [{"service": "DeleteUserInterestsService"}],
+        # Applica queste regole a TUTTI i metodi di TUTTI i servizi
+        "name": [{"service": ""}],
+        
+        # Politica di Retry (Resilienza ai crash)
         "retryPolicy": {
-            "maxAttempts": 3,
-            "initialBackoff": "0.5s",
-            "maxBackoff": "3s",
-            "backoffMultiplier": 2,
-            "retryableStatusCodes": ["UNAVAILABLE"]
+            "maxAttempts": 5,           # Riprova fino a 5 volte
+            "initialBackoff": "0.1s",   # Aspetta 100ms prima del primo retry
+            "maxBackoff": "1s",         # Non aspettare mai più di 1s
+            "backoffMultiplier": 2,     # Raddoppia l'attesa ogni volta
+            "retryableStatusCodes": ["UNAVAILABLE", "RESOURCE_EXHAUSTED"]
         },
+        
+        # Timeout totale per la chiamata (incluso i retry)
         "timeout": "5s"
     }]
-}"""
+})
 
-options = [('grpc.service_config', service_config)]
-gRPC_HOST = os.getenv('gRPC_HOST', '')
-gRPC_HOST_PORT = os.getenv('gRPC_HOST_PORT', '')
-channel = grpc.insecure_channel(f'{gRPC_HOST}:{gRPC_HOST_PORT}', options=options)
+# --- 3. CREAZIONE CANALE ---
+options = [
+    ('grpc.service_config', service_config),
+    # Keepalive: Mantiene vive le connessioni TCP (evita che firewall le chiudano)
+    ('grpc.keepalive_time_ms', 10000),    # Ping ogni 10 secondi
+    ('grpc.keepalive_timeout_ms', 5000), # Timeout del ping 5 secondi
+]
+
+# Passiamo SOLO target_address. Niente f-string, niente ':' aggiuntivi.
+channel = grpc.insecure_channel(target_address, options=options)
+
+# --- 4. CREAZIONE STUB ---
 stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
+
 
 # --- Prometheus Metrics Variables ---
 REGISTER_REQUEST_COUNT = Counter('request_add_user', 'Richieste Aggiunta Utente', ['endpoint'])
@@ -235,6 +262,6 @@ def delete_user():
 
 if __name__ == '__main__':
 
-    start_http_server(8001)
+    start_http_server(8000) 
     logger.info("REST Server listening on port 5000")
     app.run(host='0.0.0.0', port=5000, debug=False)          

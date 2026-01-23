@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: flight-data-updater
+spec:
+  # Schedulazione: Al minuto 0, ogni 8 ore (00:00, 08:00, 16:00)
+  schedule: "0 * */8 * *"
+  concurrencyPolicy: Forbid # Se il job precedente è bloccato, non ne lancia un altro sopra
+  jobTemplate:
+    spec:
+      backoffLimit: 3 # Se crasha, riprova 3 volte prima di arrendersi
+      template:
+        spec:
+          containers:
+          - name: updater
+            # USA LA STESSA IMMAGINE DEL TUO DEPLOYMENT
+            image: local/data-collector:v1
+            imagePullPolicy: IfNotPresent
+
+            command: ["python", "src/cron_runner.py"]          
+            # DEVE AVERE LE STESSE VARIABILI PER DB E KAFKA
+            envFrom:
+              - configMapRef:
+                  name: app-config
+              - secretRef:
+                  name: app-secrets
+            volumeMounts:
+            - name: secret-vol
+              mountPath: "/secrets"
+              readOnly: true
+          restartPolicy: OnFailure
+          volumes:
+          - name: secret-vol
+            secret:
+              secretName: app-secrets
+              items:
+              - key: credentials.json
+                path: credentials.json

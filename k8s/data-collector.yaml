@@ -8,18 +8,28 @@ spec:
   - name: http
     port: 5000
     targetPort: 5000
+  selector:
+    app: data-collector
+---
+apiVersion: v1 # Headless Service per gRPC
+kind: Service
+metadata:
+  name: data-collector-headless 
+spec:
+  clusterIP: None 
+  selector:
+    app: data-collector
+  ports:
   - name: grpc
     port: 50051
     targetPort: 50051
-  selector:
-    app: data-collector
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: data-collector
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: data-collector

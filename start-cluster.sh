@@ -108,9 +108,7 @@ kubectl create configmap app-config \
   --from-literal=USER_MANAGER_PORT="$USER_MANAGER_PORT" \
   --from-literal=USER_MANAGER_HOST_PORT="$USER_MANAGER_HOST_PORT" \
   --from-literal=USER_DB_HOST_PORT="$USER_DB_HOST_PORT" \
-  --from-literal=gRPC_HOST="$gRPC_HOST" \
-  --from-literal=gRPC_HOST_PORT="$gRPC_HOST_PORT" \
-  --from-literal=gRPC_PORT="$gRPC_PORT" \
+  --from-literal=gRPC_TARGET="$gRPC_TARGET" \
   --from-literal=REDIS_PORT="$REDIS_PORT" \
   --from-literal=USER_REDIS_HOST="$USER_REDIS_HOST" \
   --from-literal=DATA_REDIS_HOST="$DATA_REDIS_HOST" \
@@ -202,6 +200,7 @@ kubectl wait --for=condition=available --timeout=60s deployment/api-gateway
 
 # Prometheus
 kubectl apply -f ${MANIFEST_DIR}/prometheus.yaml
+kubectl apply -f ${MANIFEST_DIR}/data-collector-cronjob.yaml
 
 echo -e "${GREEN}==================================================${NC}"
 echo -e "${GREEN}   MIGRAZIONE COMPLETATA CON SUCCESSO! 🚀${NC}"
