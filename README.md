@@ -6,10 +6,28 @@ La password per applicazioni viene ottenuta andando nel proprio account Google->
 
 È necessario inserire il file credentials.json, scaricabile sul sito di OpenSky dopo essersi registrati, nella directory data_collector.
 
-Una volta effettuate queste operazioni basterà digitare da un terminale il comando:
+Una volta effettuate queste operazioni basterà posizionarsi nella root del progetto e digitare da un terminale i comandi:
 
 ```bash
-docker-compose up --build -d
+chmod +x start-cluster.sh
+./start-cluster.sh
+```
+
+Per accedere tramite browser a kafka-ui (localhost:8080) bisogna effettuare il port forwarding:
+
+```bash
+kubectl port-forward service/kafka-ui 8080:8080
+```
+Per accedere tramite browser all'interfaccia di prometheus (localhost:9090) bisogna effettuare il port forwarding:
+
+```bash
+kubectl port-forward service/prometheus-service 9090:9090
+```
+
+Per eliminare il cluster bisognerà inserire il seguente comando:
+
+```bash
+kind delete cluster --name migration-cluster
 ```
 
 ## Testing
