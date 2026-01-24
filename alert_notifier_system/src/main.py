@@ -1,6 +1,5 @@
 """
 Alert Notifier Service
-
 Questo modulo si iscrive al topic Kafka `to-notify` e invia email
 agli utenti quando vengono segnalati superamenti di soglie.
 Il codice è volutamente minimale: usa `confluent_kafka.Consumer`
@@ -18,14 +17,13 @@ import os
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# SMTP configuration (possibile sovrascriverle con variabili d'ambiente)
+# --- SMTP Configuration ---
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', '465'))
 SENDER_EMAIL = os.getenv('SENDER_EMAIL', '')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', '')
 
-# Kafka consumer configuration
-
+# --- Kafka consumer configuration ---
 bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '')
 
 if not bootstrap_servers:
@@ -41,7 +39,7 @@ consumer_config = {
 consumer = Consumer(consumer_config)
 TOPIC = 'to-notify'
 
-# Dimensione del batch (qui 1 per semplicità)
+# General settings
 BATCH_SIZE = 1
 received_messages = []
 message_count = 0
@@ -51,7 +49,6 @@ consumer.subscribe([TOPIC])
 
 def send_email(notification: dict) -> bool:
     """Costruisce e invia una email a `notification['email']`.
-
     La funzione legge gli interessi (soglie superate) e costruisce
     il corpo del messaggio. Se le credenziali SMTP non sono impostate
     viene loggato l'errore e si ritorna False.
@@ -69,7 +66,7 @@ def send_email(notification: dict) -> bool:
     if interests:
         lines = []
         for it in interests:
-            # ogni interesse contiene le informazioni rilevanti
+            # Every interest is a dict with all needed info
             lines.append(
                 f"Airport {it.get('current_icao')}: {it.get('number_of_flights')} flights "
                 f"(threshold {it.get('threshold')} - {it.get('type')})"
@@ -126,17 +123,17 @@ def main_loop():
                     logger.info(f"Processing batch of {len(received_messages)} messages")
                     _process_message_batch(received_messages)
 
-                    # Commit offsets dopo il processamento per at-least-once
+                    # Offset commit after processing for AT-LEAST-ONCE
                     consumer.commit(asynchronous=False)
                     logger.info(f"Committed offset: {msg.offset()}")
 
-                    # reset batch
+                    # Batch reset
                     received_messages = []
                     message_count = 0
 
             except (json.JSONDecodeError, KeyError) as e:
                 logger.error(f"Malformed message at offset {msg.offset()}: {e}")
-                # Commit malformed message offset per evitare reprocessing infinito
+                # Commit malformed message offset to avoid infinite loop
                 consumer.commit(msg)
                 continue
 

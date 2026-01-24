@@ -5,7 +5,6 @@ metadata:
   namespace: default
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -26,10 +25,7 @@ rules:
   verbs: ["get", "list", "watch"]
 - nonResourceURLs: ["/metrics"]
   verbs: ["get"]
-
-
 ---
-# 3. Colleghiamo il Ruolo all'Account nel namespace DEFAULT
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -41,41 +37,37 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: prometheus
-  namespace: default # <--- Qui era il problema, ora puntiamo a default
-
+  namespace: default 
 ---
-
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-server-conf
-
 data:
-  prometheus.yml: |
+  prometheus.yml: | # Prometheus Configuration File (Automatic Scraping of K8s Pods)
     global:
       scrape_interval: 15s
 
     scrape_configs:
-      # 1. MONITORAGGIO AUTOMATICO BASATO SU ANNOTATIONS
-      # Questo job sostituisce le tue config statiche!
+      # automatic discovery of kubernetes pods 
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
           - role: pod
         
         relabel_configs:
-          # A. REGOLA FONDAMENTALE: Tieni solo i pod che hanno l'annotation 'prometheus.io/scrape: true'
+          # A. Scrape only pods with the annotation prometheus.io/scrape set to "true"
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
             regex: true
           
-          # B. Leggi la porta corretta dall'annotation (es. 8000 o 5000)
+          # Read the port number from the prometheus.io/port annotation
           - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
             action: replace
             regex: ([^:]+)(?::\d+)?;(\d+)
             replacement: $1:$2
             target_label: __address__
           
-          # C. Aggiungi etichette utili (Namespace, Nome Pod) ai grafici
+          # Add all pod labels as Prometheus labels (Pod's name, Namespace, Worker Node)
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
           - source_labels: [__meta_kubernetes_namespace]
@@ -84,11 +76,12 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
-  
+          - - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: kubernetes_node
 ---
-
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: PersistentVolumeClaim # PVC for Prometheus Data Storage
 metadata:
   name: prometheus-pvc
 spec:
@@ -97,9 +90,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-
 ---
-
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -114,7 +105,7 @@ spec:
       labels:
         app: prometheus-server
     spec:
-      serviceAccountName: prometheus # Usa i permessi definiti sopra
+      serviceAccountName: prometheus 
       containers:
         - name: prometheus
           image: prom/prometheus:latest
@@ -148,9 +139,7 @@ spec:
         - name: prometheus-storage-volume
           persistentVolumeClaim:
             claimName: prometheus-pvc
-
 ---
-
 apiVersion: v1
 kind: Service
 metadata:
@@ -158,7 +147,7 @@ metadata:
 spec:
   selector:
     app: prometheus-server
-  type: ClusterIP # Usa Port-Forward per accedere
+  type: ClusterIP
   ports:
     - port: 9090
       targetPort: 9090

@@ -46,7 +46,6 @@ spec:
         - name: secret-vol
           mountPath: "/secrets"
           readOnly: true
-        # LIVENESS: Riavvia se incastrato per 15 secondi (3 tentativi * 5s)
         livenessProbe:
           httpGet:
             path: /health
@@ -55,8 +54,6 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
-
-        # READINESS: Isola se lento per 10 secondi
         readinessProbe:
           httpGet:
             path: /health
@@ -68,7 +65,7 @@ spec:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway # Se non c'è spazio, ammassali pur di partire
+          whenUnsatisfiable: ScheduleAnyway 
           labelSelector:
             matchLabels:
               app: user-manager

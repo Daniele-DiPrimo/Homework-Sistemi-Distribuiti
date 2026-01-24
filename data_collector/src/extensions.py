@@ -10,11 +10,11 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
-# Istanza SQLAlchemy condivisa
+# SQLAlchemy DB instance
 db = SQLAlchemy()
 
-# Scheduler per task periodici
+# Shared Period Task Scheduler 
 scheduler = APScheduler()
 
-# Placeholder che verrà impostato a runtime con un wrapper Kafka
+# Placeholder that will be set at runtime with a Kafka wrapper
 kafka_producer = None

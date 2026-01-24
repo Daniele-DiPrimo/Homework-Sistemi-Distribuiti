@@ -1,8 +1,5 @@
 syntax = "proto3"; 
 
-// questo e' il file .proto in cui si definiscono le funzioni
-// che permettono la comunicazione tra i due microservizi. 
-
 service DeleteUserInterestsService{
     rpc DeleteUserInterests (DeleteUserInterestsRequest) returns (DeleteUserInterestsResponse);
 }

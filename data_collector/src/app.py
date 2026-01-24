@@ -1,6 +1,4 @@
 """
-Data Collector API
-
 Questo modulo espone endpoint REST per registrare gli aeroporti di interesse
 e consultare informazioni sui voli. Si integra con:
 - un DB MySQL (via SQLAlchemy)
@@ -30,37 +28,30 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from prometheus_client import start_http_server, Counter, Gauge
 
-# --- FILTRO LOG INTELLIGENTE ---
+# --- Health Check Logging Filter ---
 class HealthCheckFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
-        
-        # Se è una chiamata a /health...
+
         if '/health' in msg:
-            # ...e il codice è 200 (Successo), ALLORA nascondilo (return False).
-            # Nota: cerchiamo " 200 " con gli spazi per non confonderlo 
-            # con un pezzo di data o IP.
             if ' 200 ' in msg:
                 return False
             
-            # Se è /health ma il codice è 404, 500, 503... MOSTRALO!
             return True
             
-        # Per tutte le altre rotte, mostra sempre.
         return True
 
-# Recuperiamo il logger di Werkzeug (il server di Flask)
 werkzeug_logger = logging.getLogger('werkzeug')
 
-# Aggiungiamo il nostro filtro
 werkzeug_logger.addFilter(HealthCheckFilter())
 
 logger = logging.getLogger(__name__)
 
-# Ensures we can import generated gRPC stubs in runtime
+# --- gRPC Imports ---
 sys.path.append(os.path.join(os.path.dirname(__file__), "grpc_generated"))
 import user_service_pb2, user_service_pb2_grpc
 
+# --- Flask App Setup ---
 app = Flask(__name__)
 
 # --- Database setup (SQLAlchemy) ---
@@ -75,8 +66,8 @@ app.config["SQLALCHEMY_DATABASE_URI"] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 extensions.db.init_app(app)
 
+# --- Create tables if not exist ---
 with app.app_context():
-    # Crea le tabelle se non esistono
     extensions.db.create_all()
 
 # --- Redis caches ---
@@ -92,44 +83,31 @@ extensions.scheduler.init_app(app)
 extensions.scheduler.start()
 
 # --- metrics variables ---
-
-# 1. REQUEST COUNTER ADD AIRPORT OF INTEREST
 REQUEST_COUNT = Counter(
-    'request_add_airport_total',  # <--- Ho messo gli underscore e _total (standard)
+    'request_add_airport_total',
     'Richieste alla funzione add-airport-of-interest', 
     ['endpoint']
 )
-
-# 2. ERROR COUNTER ADD AIRPORT OF INTEREST
 ERROR_COUNT = Counter(
-    'error_add_airport_total',    # <--- Underscore
+    'error_add_airport_total',    
     'Richieste fallite alla funzione add-airport-of-interest', 
     ['endpoint']
 )
-
-# 2.5 ERROR COUNTER OPENSKY
 ERROR_COUNT_OPENSKY = Counter(
-    'error_opensky_total',    # <--- Underscore
+    'error_opensky_total',    
     'Richieste fallite alla funzione add-airport-of-interest', 
     ['endpoint']
 )
-
-
-# 3. GAUGE 
 LATEST_RESPONSE_TIME = Gauge(
     'airport_add_response_time_seconds', 
     'Tempo di risposta ultima chiamata add_airport', 
     ['endpoint']
 )
-
-# 4. TOTAL HTTP REQUESTS COUNTER
 HTTP_REQUESTS_TOTAL = Counter(
     'http_requests_total', 
     'Totale richieste HTTP gestite', 
     ['method', 'endpoint', 'status_code']
 )
-
-# 3. GAUGE 
 LATEST_RESPONSE_TIME_BACKGROUNT_TASK = Gauge(
     'background_task_response_time_seconds', 
     'Tempo di risposta ultima chiamata background task'
@@ -195,17 +173,14 @@ def background_fetch_and_notify(app, interests, user_email):
     Esegue il fetch parallelo dei dati OpenSky, salva su DB e notifica Kafka.
     Viene eseguito in un thread separato.
     """
-    # È fondamentale ricreare il contesto dell'applicazione dentro il thread
-    # per accedere al database e alla configurazione.
     with app.app_context():
         with LATEST_RESPONSE_TIME_BACKGROUNT_TASK.time():
             logger.info(f"Starting background task for user {user_email} with {len(interests)} airports.")
             fetched_results = []
             airports_without_flights = []
-            # 1. Parallelizzazione delle chiamate API
-            # Usiamo max_workers=5 per non sovraccaricare l'API esterna
+            # Parallel Fetch Data
             with ThreadPoolExecutor(max_workers=5) as executor:
-                # Mappa ogni future al dizionario dell'interesse corrispondente
+
                 future_to_interest = {
                     executor.submit(tasks.fetch_data, interest.get('icao')): interest 
                     for interest in interests
@@ -216,7 +191,6 @@ def background_fetch_and_notify(app, interests, user_email):
                     icao = interest.get('icao')
 
                     try:
-                        # Qui è dove scattano le eccezioni
                         flights_data = future.result()
                     
                         interest['flights_count'] = len(flights_data)
@@ -241,11 +215,10 @@ def background_fetch_and_notify(app, interests, user_email):
             if airports_without_flights:
                 logger.info(f"No flights found for airports: {', '.join(airports_without_flights)}")
 
-            # 2. Salvataggio Bulk nel DB
             if fetched_results:
                 try:
                     stmt = insert(Flights).values(fetched_results)
-                    stmt = stmt.prefix_with('IGNORE')  # Ignora duplicati
+                    stmt = stmt.prefix_with('IGNORE') 
                     extensions.db.session.execute(stmt)
                     extensions.db.session.commit()
                     logger.info(f"Saved {len(fetched_results)} flights to DB.")
@@ -253,7 +226,6 @@ def background_fetch_and_notify(app, interests, user_email):
                     extensions.db.session.rollback()
                     logger.error(f"DB Error during background insert: {e}")
 
-            # 3. Invio a Kafka
             try:
                 tasks.send_to_kafka(interests, user_email)
                 logger.info("Notification sent to Kafka.")
@@ -273,7 +245,6 @@ def monitor_requests(response):
 
     endpoint_name = request.endpoint if request.endpoint else 'unknown'
 
-    # 3. Incrementiamo
     HTTP_REQUESTS_TOTAL.labels(
         method=request.method,
         endpoint=endpoint_name,
@@ -286,13 +257,12 @@ def monitor_requests(response):
 @app.before_request
 def headers_check():
     if request.path in ['/health', '/metrics']:
-        return None # Lascia passare la richiesta senza fare nulla
+        return None 
 
     g.client_id = request.headers.get('X-Client-ID')
     g.request_id = request.headers.get('X-Request-ID')
     g.email = request.headers.get('X-User-Email')
 
-    # controllo presenza header richiesti
     if not g.client_id:
         return jsonify({"error": "Header 'X-Client-ID' missing"}), 400
     if not g.request_id:
@@ -328,8 +298,6 @@ def add_airports_of_interest():
         if not interests:
             return jsonify({"error": "No airports specified"}), 400
 
-        # 1. Fase Sincrona: Salvataggio Preferenze Utente
-        # Deve essere fatto subito per garantire consistenza
         try:
             new_entries = []
             for interest in interests:
@@ -350,7 +318,7 @@ def add_airports_of_interest():
                 "details": "One or more airports are already present."
             }
             ERROR_COUNT.labels(endpoint='/airport-of-interest/add').inc()
-            # Cache per errore
+
             cache_packet = {"body": response_body, "status_code": 409}
             requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
             return jsonify(response_body), 409
@@ -360,12 +328,10 @@ def add_airports_of_interest():
             ERROR_COUNT.labels(endpoint='/airport-of-interest/add').inc()
             return jsonify({"error": "Database error", "details": str(e)}), 500
 
-        # 2. Fase Asincrona: Avvio Thread
-        # Recuperiamo l'oggetto app reale perché 'current_app' è un proxy e non funziona nel thread
+        # Asynchronous Background Task
         app = current_app._get_current_object()
     
-        # Copiamo i dati necessari per evitare problemi di concorrenza/contesto
-        interests_copy = json.loads(json.dumps(interests))  # Deep copy veloce
+        interests_copy = json.loads(json.dumps(interests)) 
         user_email = g.email
 
         thread = threading.Thread(
@@ -374,13 +340,11 @@ def add_airports_of_interest():
         )
         thread.start()
 
-        # 3. Risposta Immediata
         response_body = {
             "message": "Airports added successfully",
             "details": "Data collection started in background"
         }
     
-        # Salviamo in cache anche la risposta di successo (idempotenza)
         cache_packet = {"body": response_body, "status_code": 202}
         requests_cache.setex(cache_key, 300, json.dumps(cache_packet))
     
@@ -434,7 +398,6 @@ def average():
         return jsonify({"errore": "Dati mancanti. Inserisci l'aeroporto e il numero di giorni"}), 400
 
     try:
-        # limit_date: data di inizio per la ricerca (mezzanotte del giorno calcolato)
         limit_date = (datetime.now() - timedelta(days=numberOfDays)).replace(hour=0, minute=0, second=0, microsecond=0)
 
         departures_count = extensions.db.session.query(func.count(Flights.id)).filter(
@@ -470,9 +433,8 @@ def average():
 
 if __name__ == '__main__':
     
-    start_http_server(8000)  # Porta per Prometheus
-    
-    # Avvio del server gRPC in thread separato per non bloccare Flask
+    start_http_server(8000) 
+
     grpc_thread = threading.Thread(target=run_grpc_server, daemon=True)
     grpc_thread.start()
 

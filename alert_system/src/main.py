@@ -1,6 +1,5 @@
 """
 Alert System
-
 Legge messaggi dal topic `to-alert-system`, valuta le soglie
 e pubblica eventi su `to-notify` per le notifiche via email.
 Il comportamento è: leggere, valutare interessi, produrre messaggi di notifica.
@@ -15,12 +14,13 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
+# --- Kafka setup---
 bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', '')
 
 if not bootstrap_servers:
     logger.error("KAFKA_BOOTSTRAP_SERVERS environment variable not set.")
 
-# Consumer configuration
+# --- Kafka Consumer & Producer setup ---
 consumer_config = {
     'bootstrap.servers': bootstrap_servers,
     'group.id': 'group1',
@@ -37,20 +37,19 @@ producer_config = {
 consumer = Consumer(consumer_config)
 producer = Producer(producer_config)
 
+# --- Topics ---
 INPUT_TOPIC = 'to-alert-system'
 NOTIFY_TOPIC = 'to-notify'
 
-# Batch processing settings
+# --- General settings ---
 BATCH_SIZE = 1
 received_messages = []
 message_count = 0
 
 consumer.subscribe([INPUT_TOPIC])
 
-
 def send_to_notify_system(message: dict):
     """Costruisce il payload per il sistema di notifica a partire da `message`.
-
     La funzione confronta il numero di voli registrati con le soglie
     (`high_value` e `low_value`) e inserisce nel payload solo gli
     interessi che hanno superato un limite.
@@ -72,7 +71,7 @@ def send_to_notify_system(message: dict):
             low_threshold = interest.get('low_value')
             flights_count = interest.get('flights_count')
 
-            # Aggiungo solo interessi che hanno superato le soglie
+            # Adding only if thresholds are exceeded
             if high_threshold is not None and flights_count > high_threshold:
                 payload['interests'].append({
                     'current_icao': icao,
@@ -90,7 +89,7 @@ def send_to_notify_system(message: dict):
             else:
                 continue
 
-        # Produco il messaggio per il topic di notifica
+        # Create Kafka message only if there are interests to notify
         if(payload['interests']):
             producer.produce(NOTIFY_TOPIC, json.dumps(payload).encode('utf-8'), callback=delivery_report)
             producer.poll(0)

@@ -1,5 +1,4 @@
 """Task e helper per il data collector.
-
 Contiene funzioni per:
 - ottenere token da OpenSky
 - interrogare le API per i voli
@@ -23,7 +22,7 @@ import redis
 
 logger = logging.getLogger(__name__)
 
-# Redis cache per i risultati dei voli (ttl in secondi)
+# --- Redis Cache for flights data ---
 flights_cache = redis.Redis(
     host=os.getenv('REDIS_HOST', 'data-cache'),
     port=int(os.getenv('REDIS_PORT', 6379)),
@@ -31,16 +30,12 @@ flights_cache = redis.Redis(
     decode_responses=True,
 )
 
-# Circuit breaker per le chiamate esterne
+# --- Circuit Breaker for OpenSky API calls ---
 circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=5)
 
 
 def get_opensky_token():
-    """Recupera un access token da OpenSky usando client credentials.
-
-    I segreti (clientId/clientSecret) sono letti da un file JSON il cui
-    path è fornito tramite la variabile d'ambiente `SECRETS_PATH`.
-    """
+    """Ottiene un token di accesso dall'API OpenSky usando client credentials."""
 
     token = flights_cache.get('opensky_token')
     if token:
@@ -74,6 +69,7 @@ def get_opensky_token():
 
 def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None):
     """Chiama l'API opensky per ottenere i voli di andata/ritorno per un aeroporto."""
+
     departures_url = 'https://opensky-network.org/api/flights/departure'
     arrivals_url = 'https://opensky-network.org/api/flights/arrival'
 
@@ -82,7 +78,6 @@ def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None
     elif arrival and not departure:
         url = arrivals_url
     else:
-        # se non specificato, unisco partenze+arrivi
         deps = get_flights_by_airport(icao, begin, end, token, departure=True)
         arrs = get_flights_by_airport(icao, begin, end, token, arrival=True)
         return deps + arrs
@@ -98,15 +93,16 @@ def get_flights_by_airport(icao, begin, end, token, departure=None, arrival=None
 
 def _clean_flights(raw_list):
     """Pulisce i dati grezzi (da API o Cache) per renderli compatibili col DB."""
+
     clean_result = []
     expected_columns = Flights.__table__.columns.keys()
     
     for r in raw_list:
         if r.get('estDepartureAirport') and r.get('estArrivalAirport'):
-            # Filtra solo le colonne del DB
+            # DB columns filtering
             flight = {k: v for k, v in r.items() if k in expected_columns}
             
-            # Converte timestamp in datetime se necessario
+            # Timestamp conversion
             if isinstance(flight.get('firstSeen'), (int, float)):
                 flight['firstSeen'] = datetime.fromtimestamp(flight['firstSeen'])
             if isinstance(flight.get('lastSeen'), (int, float)):
@@ -125,7 +121,7 @@ def fetch_data(icao):
 
     token = circuit_breaker.call(get_opensky_token)
     end = int(time.time())
-    begin = end - 28800  # 8 ore
+    begin = end - 28800  # 8 hrs
 
     result = None
     try:
@@ -144,6 +140,7 @@ def fetch_data(icao):
 
 def send_to_kafka(message, email):
     """Invia la lista di interessi aggregati al topic `to-alert-system`."""
+
     if not message:
         logger.info("No flights to send.")
         return
@@ -153,13 +150,11 @@ def send_to_kafka(message, email):
     logger.info("Sent aggregated statistics to Kafka.")
 
 
-#@extensions.scheduler.task('interval', id='update_db', hours=8)
 def update_database():
-    """Task schedulato che aggiorna il DB e invia statistiche per ogni utente."""
-    #with extensions.scheduler.app.app_context():
+    """Funzione di aggiornamento del db Flights, invocata dal CRONJOB."""
     logger.info("--- Updating database... ---")
     try:
-        # Recupero tutti gli interessi dal DB
+        # Take all interests from DB
         stmt = extensions.db.select(AirportsOfInterest)
         all_interests_orm = extensions.db.session.execute(stmt).scalars().all()
             
@@ -167,18 +162,18 @@ def update_database():
             logger.info("--- No interests found in DB. ---")
             return
 
-        # Converto ORM -> List of Dicts per lavorarci in memoria
+        # Orm to List[Dict] for easier handling
         all_interests_dicts = [i.to_dict() for i in all_interests_orm]
 
-        # Identifico Aeroporti UNICI (Deduplicazione)
+        # Take unique ICAOs
         unique_icaos = {i['icao'] for i in all_interests_dicts}
         logger.info(f"Unique airports to fetch: {len(unique_icaos)}")
 
-        # Mappe temporanee
+        # Temporary storage
         icao_counts_map = {} 
         all_flights_to_insert = []
 
-        # Fetch Parallelo (max 5 thread)
+        # Parallel fetching with ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_icao = {
                 executor.submit(fetch_data, icao): icao 
@@ -188,14 +183,14 @@ def update_database():
             for future in as_completed(future_to_icao):
                 icao = future_to_icao[future]
                 try:
-                    # Qui chiamiamo result() e catturiamo le eccezioni specifiche
+                    # result() to take care of exceptions raised in fetch_data
                     flights = future.result()
                         
                     icao_counts_map[icao] = len(flights)
                     if flights:
                         all_flights_to_insert.extend(flights)
 
-                # --- GESTIONE ERRORI SPECIFICA ---
+                # Error handling
                 except CircuitBreakerOpenException:
                     logger.warning(f"Skipping {icao}: Circuit Breaker is OPEN.")
                     icao_counts_map[icao] = 0
@@ -210,7 +205,6 @@ def update_database():
                     logger.error(f"Generic error fetching {icao}: {e}")
                     icao_counts_map[icao] = 0
 
-        # Bulk Insert nel DB
         if all_flights_to_insert:
             logger.info(f"Inserting {len(all_flights_to_insert)} flights into DB...")
             stmt = insert(Flights).values(all_flights_to_insert)
@@ -218,21 +212,21 @@ def update_database():
             extensions.db.session.execute(stmt)
             extensions.db.session.commit()
 
-        # Distribuzione Kafka per Utente
+        # Kafka distribution for user
         users_emails = {i['email'] for i in all_interests_dicts}
             
         for email in users_emails:
-            # Filtro gli interessi di questo specifico utente
+            # Users's interests filtering
             user_payload = [x for x in all_interests_dicts if x['email'] == email]
                 
-            # Arricchisco i dati leggendo dalla memoria
+            # Fill data
             for item in user_payload:
                 item['flights_count'] = icao_counts_map.get(item['icao'], 0)
                 item.pop('email', None)
 
-            # Invio il pacchetto specifico dell'utente
+            # Send to Kafka data for sending one alert to user about 1 or more thresholds exceeded (1 email per user)
             send_to_kafka(user_payload, email)
-            # faccio il flush per evitare di perdere messaggi dopo che il pod temporaneo termina
+            # Flush to avoid message loss after temporary pod death
             extensions.kafka_producer.flush()
 
         logger.info("--- Update done successfully. ---")
@@ -240,7 +234,7 @@ def update_database():
         return True
 
     except Exception as e:
-        # Rollback generale in caso di errore critico
+        # General Rollback on critical error
         extensions.db.session.rollback()
         logger.error(f"Critical error in update task: {e}")
         return False

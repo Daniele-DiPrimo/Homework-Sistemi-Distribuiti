@@ -29,7 +29,6 @@ spec:
         image: mariadb:10.11
         imagePullPolicy: IfNotPresent
         env:
-        # PASSWORD DI ROOT
         - name: MARIADB_ROOT_PASSWORD
           valueFrom: { secretKeyRef: { name: app-secrets, key: FLIGHTSDB_ROOT_PASSWORD } }
         - name: MARIADB_USER

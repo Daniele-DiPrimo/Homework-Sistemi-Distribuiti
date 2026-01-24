@@ -34,7 +34,6 @@ class CircuitBreaker:
         """
         with self.lock:
             if self.state == 'OPEN':
-                # tempo trascorso dall'ultimo fallimento
                 time_since_failure = time.time() - (self.last_failure_time or 0)
                 if time_since_failure > self.recovery_timeout:
                     self.state = 'HALF_OPEN'
@@ -44,14 +43,12 @@ class CircuitBreaker:
             try:
                 result = func(*args, **kwargs)
             except self.expected_exception as e:
-                # incremento contatore di fallimenti
                 self.failure_count += 1
                 self.last_failure_time = time.time()
                 if self.failure_count >= self.failure_threshold:
                     self.state = 'OPEN'
                 raise e
             else:
-                # se la chiamata di prova in HALF_OPEN ha successo, chiudo il circuito
                 if self.state == 'HALF_OPEN':
                     self.state = 'CLOSED'
                     self.failure_count = 0

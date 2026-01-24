@@ -7,7 +7,7 @@ metadata:
 spec:
   ports:
   - port: 9092
-    name: plaintext
+    name: plaintext # Unencrypted traffic
   - port: 9093
     name: controller
   clusterIP: None
@@ -45,9 +45,9 @@ spec:
           value: 'MkU3OEVBNTcwNTJENDM2Qk'
         - name: KAFKA_PROCESS_ROLES
           value: 'broker,controller'
-        - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+        - name: KAFKA_CONTROLLER_QUORUM_VOTERS  # All broker nodes can vote for controller election
           value: '0@kafka-0.kafka-headless:9093,1@kafka-1.kafka-headless:9093,2@kafka-2.kafka-headless:9093'
-        - name: KAFKA_LISTENERS
+        - name: KAFKA_LISTENERS 
           value: 'PLAINTEXT://:9092,CONTROLLER://:9093'
         - name: KAFKA_CONTROLLER_LISTENER_NAMES
           value: 'CONTROLLER'
@@ -56,7 +56,7 @@ spec:
         command:
         - sh
         - -c
-        - |
+        - | # Kafka requires each broker to have a unique advertised listeners, so we set it dynamically based on the pod's hostname. 
           export KAFKA_NODE_ID=${HOSTNAME##*-}
           export KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${HOSTNAME}.kafka-headless.default.svc.cluster.local:9092
           export KAFKA_LOG_DIRS=/var/lib/kafka/data
@@ -66,27 +66,20 @@ spec:
         volumeMounts:
         - name: kafka-data
           mountPath: /var/lib/kafka/data
-        
-        # --- MODIFICA QUI: LIVENESS PROBE AGGIUNTA ---
-        # "Sei vivo?" Se fallisce per troppo tempo, RIAVVIA il pod.
         livenessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 60  # Diamo 1 minuto intero per il boot iniziale
-          periodSeconds: 20        # Controlla ogni 20 secondi (meno stress)
+          initialDelaySeconds: 60  
+          periodSeconds: 20        
           timeoutSeconds: 5
-          failureThreshold: 3      # Fallisci 3 volte prima di uccidere (totale 60s di tolleranza)
-
-        # --- MODIFICA QUI: READINESS PROBE RILASSATA ---
-        # "Sei pronto a ricevere dati?" Se fallisce, togli dal Load Balancer (ma non riavviare).
+          failureThreshold: 3      
         readinessProbe:
           tcpSocket:
             port: 9092
-          initialDelaySeconds: 60  # Aspetta 1 minuto prima di chiedere se è pronto
+          initialDelaySeconds: 60  
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
-
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

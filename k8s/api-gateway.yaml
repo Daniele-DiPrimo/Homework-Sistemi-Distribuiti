@@ -39,18 +39,16 @@ spec:
         - containerPort: 80
         - containerPort: 443
         volumeMounts:
-        # Montiamo la chiave pubblica per validare i JWT
         - name: keys-volume
           mountPath: /etc/nginx/keys
           readOnly: true
-        # Montiamo i certificati SSL
         - name: ssl-volume
           mountPath: /etc/nginx/ssl
           readOnly: true
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway # Se non c'è spazio, ammassali pur di partire
+          whenUnsatisfiable: ScheduleAnyway 
           labelSelector:
             matchLabels:
               app: api-gateway

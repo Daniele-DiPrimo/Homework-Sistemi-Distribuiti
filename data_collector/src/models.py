@@ -1,5 +1,4 @@
 """Modeli SQLAlchemy per flights e airports of interest.
-
 Le classi mappano le tabelle del DB usate dall'app.
 """
 
@@ -8,7 +7,6 @@ from extensions import db
 
 class Flights(db.Model):
     """Rappresenta un volo registrato dall'API opensky.
-
     Le colonne corrispondono ai campi principali necessari per il calcolo
     e l'aggregazione. È presente una UniqueConstraint per evitare duplicati.
     """

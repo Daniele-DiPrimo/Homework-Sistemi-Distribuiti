@@ -41,7 +41,7 @@ services:
       retries: 5
       start_period: 60s
     environment:
-      # --- Configurazione KRaft ---
+      # --- KRaft setup ---
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker-kafka-1:9093,2@broker-kafka-2:9093,3@broker-kafka-3:9093'
@@ -50,7 +50,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker-kafka-1:9092'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
-      # --- Altre Configurazioni ---
+      # --- Other settings ---
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
@@ -184,9 +184,9 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      # Certificati SSL
+      # SSL Certs
       - ./api_gateway/SSL:/etc/nginx/ssl:ro
-      # Public Key per JWT
+      # JWT Public Key
       - ./api_gateway/public_key.pem:/etc/nginx/keys/public.pem:ro
     depends_on:
       user-manager:
@@ -235,7 +235,7 @@ services:
     secrets:
       - opensky_secrets
     healthcheck:
-      # Prova a connettersi a localhost:50051. Se riesce, esce con 0 (OK).
+      # Try to connect to gRPC port ( 50051 ). If succeeds, service is healthy.
       test: ["CMD-SHELL", "python3 -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 50051));\""]
       interval: 5s
       timeout: 5s
@@ -330,7 +330,7 @@ services:
     restart: always
     networks:
       - user-network
-      - gateway-network #black_list redis
+      - gateway-network # For BlackList checking
 
 volumes:
   flightdb_data:

@@ -18,29 +18,19 @@ import jwt
 import uuid
 from prometheus_client import start_http_server, Counter
 
-# --- FILTRO LOG INTELLIGENTE ---
+# --- HealthCheck Logging Filter ---
 class HealthCheckFilter(logging.Filter):
     def filter(self, record):
         msg = record.getMessage()
         
-        # Se è una chiamata a /health...
         if '/health' in msg:
-            # ...e il codice è 200 (Successo), ALLORA nascondilo (return False).
-            # Nota: cerchiamo " 200 " con gli spazi per non confonderlo 
-            # con un pezzo di data o IP.
             if ' 200 ' in msg:
                 return False
-            
-            # Se è /health ma il codice è 404, 500, 503... MOSTRALO!
             return True
-            
-        # Per tutte le altre rotte, mostra sempre.
         return True
 
-# Recuperiamo il logger di Werkzeug (il server di Flask)
 werkzeug_logger = logging.getLogger('werkzeug')
 
-# Aggiungiamo il nostro filtro
 werkzeug_logger.addFilter(HealthCheckFilter())
 
 logger = logging.getLogger(__name__)
@@ -79,7 +69,7 @@ with app.app_context():
     except Exception:
         pass
 
-# Redis per idempotenza delle API
+# --- Cache Redis setup ---
 redis_client = redis.Redis(
     host=os.getenv('USER_REDIS_HOST', 'user-cache.default.svc.cluster.local'),
     port=int(os.getenv('USER_REDIS_HOST_PORT', 6379)),
@@ -164,7 +154,7 @@ def login_user():
     if user:
         now_utc = datetime.now(timezone.utc)
         
-        # Creazione e firma del JWT
+        # JWT TOKEN GENERATION
         payload = {
             'sub': email,
             'client_id': str(uuid.uuid4()),
@@ -247,7 +237,7 @@ def delete_user():
         response_body = {"message": "utente correttamente eliminato dall'archivio", "email_request": email, "status": True}
         status_code = 200
 
-        # Chiamata gRPC per eliminare le preferenze associate all'utente
+        # gRPC call to Data Collector to delete user interests
         try:
             response = stub.DeleteUserInterests(user_service_pb2.DeleteUserInterestsRequest(email=email), timeout=5)
 

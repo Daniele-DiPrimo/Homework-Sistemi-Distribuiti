@@ -12,7 +12,9 @@ spec:
   selector:
     app: data-collector
 ---
-apiVersion: v1 # Headless Service per gRPC
+# there isn't a single Cluster IP for the gRPC service. With headless service, each pod gets its own DNS entry. 
+# So when a client looks up the service name, it gets back multiple records (All pod's IP), one for each pod.
+apiVersion: v1 
 kind: Service
 metadata:
   name: data-collector-headless 
@@ -39,6 +41,7 @@ spec:
       labels:
         app: data-collector
       annotations: 
+        # For Prometheus auto scraping
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
     spec:
@@ -62,8 +65,7 @@ spec:
         - name: secret-vol
           mountPath: "/secrets"
           readOnly: true
-        # LIVENESS: Riavvia se incastrato per 15 secondi (3 tentativi * 5s)
-        livenessProbe:
+        livenessProbe: # Check if the app is running
           httpGet:
             path: /health
             port: 5000
@@ -71,9 +73,7 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
-
-        # READINESS: Isola se lento per 10 secondi
-        readinessProbe:
+        readinessProbe: # Check if the app is ready to accept traffic 
           httpGet:
             path: /health
             port: 5000
@@ -81,10 +81,10 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 2
-      topologySpreadConstraints:
-        - maxSkew: 1
+      topologySpreadConstraints: # Distribute pods evenly across nodes improving availability
+        - maxSkew: 1 # Max 2 data-collector pods on a node
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway # Se non c'è spazio, ammassali pur di partire
+          whenUnsatisfiable: ScheduleAnyway 
           labelSelector:
             matchLabels:
               app: data-collector
