@@ -6,10 +6,18 @@ La password per applicazioni viene ottenuta andando nel proprio account Google->
 
 È necessario inserire il file credentials.json, scaricabile sul sito di OpenSky dopo essersi registrati, nella directory data_collector.
 
-Una volta effettuate queste operazioni basterà digitare da un terminale il comando:
+Una volta effettuate queste operazioni basterà posizionarsi nella root del progetto e digitare da un terminale i comandi:
 
 ```bash
-docker-compose up --build -d
+chmod +x start-cluster.sh
+./start-cluster.sh
+```
+
+Per eliminare il cluster bisognerà inserire il seguente comando:
+chmod +x start-cluster.sh
+
+```bash
+kind delete cluster --name migration-cluster
 ```
 
 ## Testing

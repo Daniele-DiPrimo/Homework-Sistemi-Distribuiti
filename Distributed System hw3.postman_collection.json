@@ -1,0 +1,547 @@
+{
+  "info": {
+    "_postman_id": "b8475151-0a84-4d80-98da-db10f08c4091",
+    "name": "Distributed System hw3",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "27695616",
+    "_collection_link": "https://go.postman.co/collection/27695616-b8475151-0a84-4d80-98da-db10f08c4091?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "opensky_api",
+      "item": [
+        {
+          "name": "opensky_token",
+          "request": {
+            "auth": {
+              "type": "oauth2",
+              "oauth2": [
+                {
+                  "key": "client_authentication",
+                  "value": "body",
+                  "type": "string"
+                },
+                {
+                  "key": "clientSecret",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                },
+                {
+                  "key": "clientId",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "accessTokenUrl",
+                  "value": "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+                  "type": "string"
+                },
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "string"
+                },
+                {
+                  "key": "addTokenTo",
+                  "value": "header",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": ""
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "get_all_states",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ0SVIwSDB0bmNEZTlKYmp4dFctWEtqZ0RYSWExNnR5eU5DWHJxUzJQNkRjIn0.eyJleHAiOjE3NjQwMDEyOTYsImlhdCI6MTc2Mzk5OTQ5NiwianRpIjoiNWMzYjhiYzAtNTQyOS00YjgyLWE5ZDAtZWE0YWU5ZWU1MWU3IiwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5za3ktbmV0d29yay5vcmcvYXV0aC9yZWFsbXMvb3BlbnNreS1uZXR3b3JrIiwiYXVkIjpbIndlYnNpdGUtdWkiLCJhY2NvdW50Il0sInN1YiI6ImRkYWVmNGI5LTIyZTctNGU2Yy1iZDQ5LTIwMTkyYzllZjBiNiIsInR5cCI6IkJlYXJlciIsImF6cCI6Im1hdHRlb3NlY29uZG8tYXBpLWNsaWVudCIsImFjciI6IjEiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJPUEVOU0tZX0FQSV9ERUZBVUxUIiwidW1hX2F1dGhvcml6YXRpb24iLCJkZWZhdWx0LXJvbGVzLW9wZW5za3ktbmV0d29yayJdfSwicmVzb3VyY2VfYWNjZXNzIjp7IndlYnNpdGUtdWkiOnsicm9sZXMiOlsib3BlbnNreV93ZWJzaXRlX3VzZXIiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoicHJvZmlsZSBlbWFpbCIsImNsaWVudElkIjoibWF0dGVvc2Vjb25kby1hcGktY2xpZW50IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJjbGllbnRIb3N0IjoiNzguMjExLjIxMi4xNjciLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJzZXJ2aWNlLWFjY291bnQtbWF0dGVvc2Vjb25kby1hcGktY2xpZW50IiwiY2xpZW50QWRkcmVzcyI6Ijc4LjIxMS4yMTIuMTY3In0.HbwR4aAvHDcV7pcyf0cQnXSBfVVX59Qgc6aAGQ-zsk5I-iy85VHvYTw6Ocad1IQsWh1oZ1GSzAtOx9zT0kSn8fQHke7nVQo0QAE_p91ScDI0VfTIvcFuQnJyQBYe4JoiyIvoMI2p5nNpQQOhstpyZ1fNwuh00xS5DtY4FJvdwmaasqji1QrY23zPU7i5n3wbz5HcdydaTc-Y4BbGomg3ZkFJHm_ATRrO5aXvF00CcSX2Qpze_gozq0sQIUBdXOqC5VufSYu9oMdGYENhqvyFnkwa02N6LylqX5zFUS-6kEhseAPKMV_FDF6h7YKMXFj78E-x8bEZaaW83iXV2J-4EA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://opensky-network.org/api/states/all",
+              "protocol": "https",
+              "host": [
+                "opensky-network",
+                "org"
+              ],
+              "path": [
+                "api",
+                "states",
+                "all"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "get_arrivals",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ0SVIwSDB0bmNEZTlKYmp4dFctWEtqZ0RYSWExNnR5eU5DWHJxUzJQNkRjIn0.eyJleHAiOjE3Njg4Mzk0MDksImlhdCI6MTc2ODgzNzYwOSwianRpIjoiMGJlN2ZmMzQtMzhkNS00ODA4LTlhMWItODcxMmFhMjUzMTE4IiwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5za3ktbmV0d29yay5vcmcvYXV0aC9yZWFsbXMvb3BlbnNreS1uZXR3b3JrIiwiYXVkIjpbIndlYnNpdGUtdWkiLCJhY2NvdW50Il0sInN1YiI6ImRkYWVmNGI5LTIyZTctNGU2Yy1iZDQ5LTIwMTkyYzllZjBiNiIsInR5cCI6IkJlYXJlciIsImF6cCI6Im1hdHRlb3NlY29uZG8tYXBpLWNsaWVudCIsImFjciI6IjEiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJPUEVOU0tZX0FQSV9ERUZBVUxUIiwidW1hX2F1dGhvcml6YXRpb24iLCJkZWZhdWx0LXJvbGVzLW9wZW5za3ktbmV0d29yayJdfSwicmVzb3VyY2VfYWNjZXNzIjp7IndlYnNpdGUtdWkiOnsicm9sZXMiOlsib3BlbnNreV93ZWJzaXRlX3VzZXIiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoicHJvZmlsZSBlbWFpbCIsImNsaWVudElkIjoibWF0dGVvc2Vjb25kby1hcGktY2xpZW50IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJjbGllbnRIb3N0IjoiMzcuMTYwLjYzLjUyIiwicHJlZmVycmVkX3VzZXJuYW1lIjoic2VydmljZS1hY2NvdW50LW1hdHRlb3NlY29uZG8tYXBpLWNsaWVudCIsImNsaWVudEFkZHJlc3MiOiIzNy4xNjAuNjMuNTIifQ.E3mbPtXe3zc7N4Lv2EIoRb5eJ5107c7C66tccWzux3RFpsH5EX1f3HrmxKVqOKKAC3VSYCWAkvFxYApuF2iEyuQKAgodl_0Rd4zTTgYv2glZpbCGHwfYZ-_nXWisyOwCPLOU15b6Q-WNRYsExvseB1F_XVUqx84SPwHeHvHOeFU7446wV0itx2-0NrxTDy4QLdHj65RB6YvrRYHFRHvyTR_G7tqopsV3Q-hs3RS9M3SHCBSfei084gl5iTAHqXQGkbz-AArq5UUO3QWP4Fw-ZWo41J1iKJcC2iSVk8bxoBrpAuu-OMPnR4HxfiogxnF-J35b-x3xcbui_rxwt3b3Gw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://opensky-network.org/api/flights/arrival?airport=KLAX&begin=1768808797&end=1768837597",
+              "protocol": "https",
+              "host": [
+                "opensky-network",
+                "org"
+              ],
+              "path": [
+                "api",
+                "flights",
+                "arrival"
+              ],
+              "query": [
+                {
+                  "key": "airport",
+                  "value": "KLAX"
+                },
+                {
+                  "key": "begin",
+                  "value": "1768808797"
+                },
+                {
+                  "key": "end",
+                  "value": "1768837597"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "get_departures",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ0SVIwSDB0bmNEZTlKYmp4dFctWEtqZ0RYSWExNnR5eU5DWHJxUzJQNkRjIn0.eyJleHAiOjE3Njg4Mzk1OTEsImlhdCI6MTc2ODgzNzc5MSwianRpIjoiODdmNjk3ZWEtZTk3Ni00ZWJjLWE1NTEtOGQxNjY5YjkxNDEyIiwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5za3ktbmV0d29yay5vcmcvYXV0aC9yZWFsbXMvb3BlbnNreS1uZXR3b3JrIiwiYXVkIjpbIndlYnNpdGUtdWkiLCJhY2NvdW50Il0sInN1YiI6ImRkYWVmNGI5LTIyZTctNGU2Yy1iZDQ5LTIwMTkyYzllZjBiNiIsInR5cCI6IkJlYXJlciIsImF6cCI6Im1hdHRlb3NlY29uZG8tYXBpLWNsaWVudCIsImFjciI6IjEiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJPUEVOU0tZX0FQSV9ERUZBVUxUIiwidW1hX2F1dGhvcml6YXRpb24iLCJkZWZhdWx0LXJvbGVzLW9wZW5za3ktbmV0d29yayJdfSwicmVzb3VyY2VfYWNjZXNzIjp7IndlYnNpdGUtdWkiOnsicm9sZXMiOlsib3BlbnNreV93ZWJzaXRlX3VzZXIiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoicHJvZmlsZSBlbWFpbCIsImNsaWVudElkIjoibWF0dGVvc2Vjb25kby1hcGktY2xpZW50IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJjbGllbnRIb3N0IjoiMzcuMTYwLjYzLjUyIiwicHJlZmVycmVkX3VzZXJuYW1lIjoic2VydmljZS1hY2NvdW50LW1hdHRlb3NlY29uZG8tYXBpLWNsaWVudCIsImNsaWVudEFkZHJlc3MiOiIzNy4xNjAuNjMuNTIifQ.CzB_Tc9GHS9qsfPR97rzD5uvZXikYLrFuAuyvOgtV4W30OpwhhNgKHDdNCXWVkJD2qrQJbWxiXoDbl4Jyn6tETSa3Q3YQmi1Fe1eHmEIc2ocVfU-unolxZUbJTylI-j-NHVxqt9uo-AtXPnr7R1vWkF25A3lN-0KURXryXTd6-h2zNerURWhnaEvPxO87aUjNl-afw5SIXvB6LAONS6z_6yc7ENKj8Km90z-o_38ixez6McxbPqZ2qgNT40JDRaoLdabVFdGcZgIfV_-TBGiEhBRajZzi9K7KIEn7HQbelr7rZYKzVjwDh9RpSdKJcFzQ2OnCMc3scpVob1w7uEJCA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://opensky-network.org/api/flights/departure?airport=EDDF&begin=1768808797&end=1768837597",
+              "protocol": "https",
+              "host": [
+                "opensky-network",
+                "org"
+              ],
+              "path": [
+                "api",
+                "flights",
+                "departure"
+              ],
+              "query": [
+                {
+                  "key": "airport",
+                  "value": "EDDF"
+                },
+                {
+                  "key": "begin",
+                  "value": "1768808797"
+                },
+                {
+                  "key": "end",
+                  "value": "1768837597"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "get_flights",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJ0SVIwSDB0bmNEZTlKYmp4dFctWEtqZ0RYSWExNnR5eU5DWHJxUzJQNkRjIn0.eyJleHAiOjE3Njg2NzMwNzcsImlhdCI6MTc2ODY3MTI3NywianRpIjoiNTc2M2MwMWItNGVhMi00ZWU1LWFmYzYtNmZhNzQ2ZDg5MDQ1IiwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5za3ktbmV0d29yay5vcmcvYXV0aC9yZWFsbXMvb3BlbnNreS1uZXR3b3JrIiwiYXVkIjpbIndlYnNpdGUtdWkiLCJhY2NvdW50Il0sInN1YiI6ImRkYWVmNGI5LTIyZTctNGU2Yy1iZDQ5LTIwMTkyYzllZjBiNiIsInR5cCI6IkJlYXJlciIsImF6cCI6Im1hdHRlb3NlY29uZG8tYXBpLWNsaWVudCIsImFjciI6IjEiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJPUEVOU0tZX0FQSV9ERUZBVUxUIiwidW1hX2F1dGhvcml6YXRpb24iLCJkZWZhdWx0LXJvbGVzLW9wZW5za3ktbmV0d29yayJdfSwicmVzb3VyY2VfYWNjZXNzIjp7IndlYnNpdGUtdWkiOnsicm9sZXMiOlsib3BlbnNreV93ZWJzaXRlX3VzZXIiXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoicHJvZmlsZSBlbWFpbCIsImNsaWVudElkIjoibWF0dGVvc2Vjb25kby1hcGktY2xpZW50IiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlLCJjbGllbnRIb3N0IjoiNzguMjExLjQzLjE5OSIsInByZWZlcnJlZF91c2VybmFtZSI6InNlcnZpY2UtYWNjb3VudC1tYXR0ZW9zZWNvbmRvLWFwaS1jbGllbnQiLCJjbGllbnRBZGRyZXNzIjoiNzguMjExLjQzLjE5OSJ9.VCGZgzm57yHIfm5K7CV6H3fZHu7oexd6YBejbaTA-ia_-eK2u6j-tflQOVf-XYhDihLtPVHXWS-sPhziV1qRCjcPWkz9dsvLC4RyqyEqieK4YzXZxRW3uh3ClIu1r3_Zm0dRR41pfVxKjXmoyJYEdVI969efE-xznvxxzojdrpsU7VX4KFn18u1YBC_VCWZtCGQzBuC5sEhiTKX_NGnlNABIFGC5zhPgPha28wdjJXLKxH-TvpAM-1y8hzD4AzPbHMObjwMCTjEUBHWbGVw395ro70PsCAL_ruWAFR9_DrvhJhqIHx3UPb0Z_GeTFiUtlHHGAvt_sT3k7b0yOM1qmw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://opensky-network.org/api/flights/all?begin=1768642519&end=1768671319",
+              "protocol": "https",
+              "host": [
+                "opensky-network",
+                "org"
+              ],
+              "path": [
+                "api",
+                "flights",
+                "all"
+              ],
+              "query": [
+                {
+                  "key": "begin",
+                  "value": "1768642519"
+                },
+                {
+                  "key": "end",
+                  "value": "1768671319"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "app",
+      "item": [
+        {
+          "name": "flights",
+          "item": [
+            {
+              "name": "add_airports_of_interest",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcm92YTJAZ21haWwuY29tIiwiY2xpZW50X2lkIjoiMGNlYzYxZmItOWEzZS00NWJjLTkwMGUtMWRjNDMxZjc4ZjM5IiwiaWF0IjoxNzY5MTkzNTA0LCJleHAiOjE3NjkxOTQxMDR9.P0ovNgPKlfpRhdaWq-xCw0mmg66h5qrrJv-6Ede3_G42H7HJBruOr0uGDsDCXA7dT-iR1YiqoOy1g7hqhC2JJRDqloJBft5aGK35RN7Bm8KiEZePknfikC_nynKiBqvM1_SJLslV3daJEOyh-Xwvr34lYFinQmj56EURQ9A3rifiJVJEB8AQ9hUBVfpD4hr6l8KRpDvRBhZydC3lhC16aEgdw0som2VYaJjky0HOkyLoThhfuE9WAety2ajPnC_GrQIM9iRe-0YuZZiDdYMpYT0agU35FJteoBKqsw-BcjZ497lnLcNIccPJVaUcFYMcIKeuxe6U79GIW6oGOKWF8w",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-User-Email",
+                    "value": "prova@gmail.com",
+                    "type": "text",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Client-ID",
+                    "value": "43",
+                    "type": "text",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Request-ID",
+                    "value": "5",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"airports\": [\r\n        {\r\n            \"icao\": \"KJFK\",\r\n            \"high_value\": 4,\r\n            \"low_value\": 1\r\n        }\r\n    ]\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://localhost/flights/airport-of-interest/add",
+                  "protocol": "https",
+                  "host": [
+                    "localhost"
+                  ],
+                  "path": [
+                    "flights",
+                    "airport-of-interest",
+                    "add"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "get_average_flights",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcm92YTJAZ21haWwuY29tIiwiY2xpZW50X2lkIjoiMGNlYzYxZmItOWEzZS00NWJjLTkwMGUtMWRjNDMxZjc4ZjM5IiwiaWF0IjoxNzY5MTkzNTA0LCJleHAiOjE3NjkxOTQxMDR9.P0ovNgPKlfpRhdaWq-xCw0mmg66h5qrrJv-6Ede3_G42H7HJBruOr0uGDsDCXA7dT-iR1YiqoOy1g7hqhC2JJRDqloJBft5aGK35RN7Bm8KiEZePknfikC_nynKiBqvM1_SJLslV3daJEOyh-Xwvr34lYFinQmj56EURQ9A3rifiJVJEB8AQ9hUBVfpD4hr6l8KRpDvRBhZydC3lhC16aEgdw0som2VYaJjky0HOkyLoThhfuE9WAety2ajPnC_GrQIM9iRe-0YuZZiDdYMpYT0agU35FJteoBKqsw-BcjZ497lnLcNIccPJVaUcFYMcIKeuxe6U79GIW6oGOKWF8w",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Email",
+                    "value": "prova@gmail.com",
+                    "type": "text",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Client-ID",
+                    "value": "2",
+                    "type": "text",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Request-ID",
+                    "value": "2",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": []
+                },
+                "url": {
+                  "raw": "http://localhost/flights//airport-of-interest/average?airport=KJFK&numberOfDays=1",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "path": [
+                    "flights",
+                    "",
+                    "airport-of-interest",
+                    "average"
+                  ],
+                  "query": [
+                    {
+                      "key": "airport",
+                      "value": "KJFK"
+                    },
+                    {
+                      "key": "numberOfDays",
+                      "value": "1"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "get_latest_flights",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcm92YTJAZ21haWwuY29tIiwiY2xpZW50X2lkIjoiMGNlYzYxZmItOWEzZS00NWJjLTkwMGUtMWRjNDMxZjc4ZjM5IiwiaWF0IjoxNzY5MTkzNTA0LCJleHAiOjE3NjkxOTQxMDR9.P0ovNgPKlfpRhdaWq-xCw0mmg66h5qrrJv-6Ede3_G42H7HJBruOr0uGDsDCXA7dT-iR1YiqoOy1g7hqhC2JJRDqloJBft5aGK35RN7Bm8KiEZePknfikC_nynKiBqvM1_SJLslV3daJEOyh-Xwvr34lYFinQmj56EURQ9A3rifiJVJEB8AQ9hUBVfpD4hr6l8KRpDvRBhZydC3lhC16aEgdw0som2VYaJjky0HOkyLoThhfuE9WAety2ajPnC_GrQIM9iRe-0YuZZiDdYMpYT0agU35FJteoBKqsw-BcjZ497lnLcNIccPJVaUcFYMcIKeuxe6U79GIW6oGOKWF8w",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-User-Email",
+                    "value": "prova@gmail.com",
+                    "type": "text",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Client-ID",
+                    "value": "2",
+                    "type": "text",
+                    "disabled": true
+                  },
+                  {
+                    "key": "X-Request-ID",
+                    "value": "3",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": ""
+                },
+                "url": {
+                  "raw": "http://localhost/flights/get-flights/latest?airport=KJFK",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "path": [
+                    "flights",
+                    "get-flights",
+                    "latest"
+                  ],
+                  "query": [
+                    {
+                      "key": "airport",
+                      "value": "KJFK"
+                    }
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "user",
+          "item": [
+            {
+              "name": "login_user",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-REQUEST-ID",
+                    "value": "2",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"email\": \"prova2@gmail.com\",\r\n    \"password\": \"password\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://localhost/auth/login",
+                  "protocol": "https",
+                  "host": [
+                    "localhost"
+                  ],
+                  "path": [
+                    "auth",
+                    "login"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "register_user",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-REQUEST-ID",
+                    "value": "2",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-Client-ID",
+                    "value": "3",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n    \"email\": \"prova@gmail.com\",\r\n    \"password\": \"password\",\r\n    \"nome\": \"nome\",\r\n    \"cognome\": \"cognome\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://localhost/auth/register",
+                  "protocol": "https",
+                  "host": [
+                    "localhost"
+                  ],
+                  "path": [
+                    "auth",
+                    "register"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "delete_user",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcm92YTJAZ21haWwuY29tIiwiY2xpZW50X2lkIjoiYTRhZGEwZWUtODQ4OS00NThiLWE5N2EtYzlmZTlhOWZjMGJmIiwiaWF0IjoxNzY5MTk0NjI4LCJleHAiOjE3NjkxOTUyMjh9.RIlkD5nUult5PLtEzTeTbNHrC7ge6w84ONXbOvSl-hwwj3kMa6asOfD_XKxSC9PSSG5neLAklekxqPI6HqJDbzixgzc8QUiGCEfiyFTQLKiAPcbAAu-kfdrQq_Btvo6Qp9e4PfmSdNFzCiNGQdJtdkdgg-BjPA4td_x9WlKnwz4qMboMLPiEpU3UqutPCjPqmMzmX4rgOek2TmUDIlUaAzRwdD5yowEL_qLSw6fbDdT0BKdIESLazisjS1E_reOQeXoYQ4e4J_MxqZw5vPgN8fV0wN30quTTfn3EsF2lm8wJXZp7szXqoFJrszLdTwg_KSwZcXTmIGc-BqI1l4MyLQ",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-REQUEST-ID",
+                    "value": "7",
+                    "type": "text"
+                  },
+                  {
+                    "key": "X-Client-ID",
+                    "value": "3",
+                    "type": "text",
+                    "disabled": true
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "https://localhost/users/delete",
+                  "protocol": "https",
+                  "host": [
+                    "localhost"
+                  ],
+                  "path": [
+                    "users",
+                    "delete"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

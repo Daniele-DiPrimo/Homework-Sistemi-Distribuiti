@@ -20,6 +20,4 @@ RUN mkdir -p /etc/nginx/keys \
 
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
-COPY load_balancer.conf /etc/nginx/conf.d/load_balancer.conf
-
 COPY jwt_validator.lua /etc/nginx/lua/jwt_validator.lua
