@@ -13,8 +13,18 @@ chmod +x start-cluster.sh
 ./start-cluster.sh
 ```
 
+Per accedere tramite browser a kafka-ui (localhost:8080) bisogna effettuare il port forwarding:
+
+```bash
+kubectl port-forward service/kafka-ui 8080:8080
+```
+Per accedere tramite browser all'interfaccia di prometheus (localhost:9090) bisogna effettuare il port forwarding:
+
+```bash
+kubectl port-forward service/prometheus-service 9090:9090
+```
+
 Per eliminare il cluster bisognerà inserire il seguente comando:
-chmod +x start-cluster.sh
 
 ```bash
 kind delete cluster --name migration-cluster
