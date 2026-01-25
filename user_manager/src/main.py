@@ -16,7 +16,7 @@ from extensions import db
 from user import User
 import jwt
 import uuid
-from prometheus_client import start_http_server, Counter
+from prometheus_client import start_http_server, Counter, Gauge
 
 # --- HealthCheck Logging Filter ---
 class HealthCheckFilter(logging.Filter):
@@ -118,11 +118,12 @@ stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 REGISTER_REQUEST_COUNT = Counter('request_add_user', 'Richieste Aggiunta Utente', ['endpoint'])
 LOGIN_REQUEST_COUNT = Counter('request_login_user', 'Richieste Login Utente', ['endpoint'])
 HTTP_REQUESTS_COUNT = Counter('http_requests_total', 'Total HTTP Requests', ['method', 'endpoint', 'http_status'])
+LOGIN_RESPONSE_TIME = Gauge('login_response_time', 'Login Response Time in Seconds', ['method', 'endpoint'])
 
 @app.after_request
 def monitor_requests(response):
    
-    if request.path == '/metrics' or request.path == '/health_check':
+    if request.path == '/metrics' or request.path == '/health':
         return response
 
     endpoint_name = request.endpoint if request.endpoint else 'unknown'
@@ -143,48 +144,50 @@ def health_check():
 def login_user():
     """Effettua il login di un utente."""
 
-    LOGIN_REQUEST_COUNT.labels(endpoint='/auth/login').inc()
+    with LOGIN_RESPONSE_TIME.labels(method='POST', endpoint='/auth/login').time():
 
-    request_id = request.headers.get('X-Request-ID')
+        LOGIN_REQUEST_COUNT.labels(endpoint='/auth/login').inc()
+
+        request_id = request.headers.get('X-Request-ID')
     
-    if not request_id:
-        return jsonify({"error": "X-REQUEST-ID missing in header"}), 400
+        if not request_id:
+            return jsonify({"error": "X-REQUEST-ID missing in header"}), 400
 
-    if not PRIVATE_KEY:
-        logger.error("Private key not available.")
-        return jsonify({"error": "Server error"}), 500
+        if not PRIVATE_KEY:
+            logger.error("Private key not available.")
+            return jsonify({"error": "Server error"}), 500
 
-    cache_key = f"login:{request_id}"
-    cached_data = redis_client.get(cache_key)
-    if cached_data:
-        response_json = json.loads(cached_data)
-        return jsonify(response_json['body']), response_json['status_code']
+        cache_key = f"login:{request_id}"
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            response_json = json.loads(cached_data)
+            return jsonify(response_json['body']), response_json['status_code']
     
-    data = request.get_json() or {}
-    if not data or 'email' not in data or 'password' not in data:
-        return jsonify({"error": "Missing email or password"}), 400
+        data = request.get_json() or {}
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({"error": "Missing email or password"}), 400
 
-    email = data['email']
-    password = data['password']
+        email = data['email']
+        password = data['password']
 
-    user = User.login(email, password)
-    if user:
-        now_utc = datetime.now(timezone.utc)
+        user = User.login(email, password)
+        if user:
+            now_utc = datetime.now(timezone.utc)
         
-        # JWT TOKEN GENERATION
-        payload = {
-            'sub': email,
-            'client_id': str(uuid.uuid4()),
-            'iat': now_utc,
-            'exp': now_utc + timedelta(minutes=10)
-        }
-        token = jwt.encode(payload, PRIVATE_KEY, algorithm="RS256")
+            # JWT TOKEN GENERATION
+            payload = {
+                'sub': email,
+                'client_id': str(uuid.uuid4()),
+                'iat': now_utc,
+                'exp': now_utc + timedelta(minutes=10)
+            }
+            token = jwt.encode(payload, PRIVATE_KEY, algorithm="RS256")
 
-        response_body = {"access_token": token, "token_type": "Bearer", "expires_in": "10m"}
-        status_code = 200
-    else:
-        response_body = {"error": "Invalid credentials"}
-        status_code = 401
+            response_body = {"access_token": token, "token_type": "Bearer", "expires_in": "10m"}
+            status_code = 200
+        else:
+            response_body = {"error": "Invalid credentials"}
+            status_code = 401
 
     cache_packet = {"body": response_body, "status_code": status_code}
     redis_client.setex(cache_key, 180, json.dumps(cache_packet))

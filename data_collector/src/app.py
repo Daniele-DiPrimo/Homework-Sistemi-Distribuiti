@@ -240,7 +240,7 @@ def health_check():
 @app.after_request
 def monitor_requests(response):
    
-    if request.path == '/metrics' or request.path == '/health_check':
+    if request.path == '/metrics' or request.path == '/health':
         return response
 
     endpoint_name = request.endpoint if request.endpoint else 'unknown'
