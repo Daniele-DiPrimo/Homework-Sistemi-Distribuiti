@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}[1/7] Verifica Prerequisiti...${NC}"
+echo -e "${YELLOW}[1/8] Verifica Prerequisiti...${NC}"
 
 if [ ! -d "$MANIFEST_DIR" ]; then
     echo -e "${RED}Errore: Cartella '$MANIFEST_DIR' non trovata!${NC}"
@@ -35,7 +35,7 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-echo -e "${YELLOW}[2/7] Gestione Cluster Kind...${NC}"
+echo -e "${YELLOW}[2/8] Gestione Cluster Kind...${NC}"
 
 # Controllo esistenza cluster (Lo manteniamo per risparmiare tempo di boot)
 if kind get clusters | grep -q "migration-cluster"; then
@@ -45,7 +45,7 @@ else
     kind create cluster --config ./kind/kind-config.yaml --name migration-cluster
 fi
 
-echo -e "${YELLOW}[3/7] Build & Force Load Immagini...${NC}"
+echo -e "${YELLOW}[3/8] Build & Force Load Immagini...${NC}"
 
 declare -a services=(
     "local/api-gateway:v1 ./api_gateway"
@@ -71,7 +71,14 @@ for service in "${services[@]}"; do
     kind load docker-image $IMAGE_NAME --name migration-cluster
 done
 
-echo -e "${YELLOW}[4/7] Generazione Secret e Config...${NC}"
+kind load docker-image confluentinc/cp-kafka:7.4.0 --name migration-cluster
+echo -e "${YELLOW}[4/8] Pull Immagine Kafka...${NC}"
+
+docker pull confluentinc/cp-kafka:7.4.0
+kind load docker-image confluentinc/cp-kafka:7.4.0 --name migration-cluster
+
+
+echo -e "${YELLOW}[5/8] Generazione Secret e Config...${NC}"
 
 # 1. Carichiamo le variabili dal .env in memoria
 set -a
@@ -132,7 +139,7 @@ kubectl create secret generic app-secrets \
 # Riabilitiamo la conversione (opzionale, ma pulito)
 unset MSYS_NO_PATHCONV
 
-echo -e "${YELLOW}[5/7] Deployment Infrastruttura (Kafka & DB)...${NC}"
+echo -e "${YELLOW}[6/8] Deployment Infrastruttura (Kafka & DB)...${NC}"
 # Nota: Assicurati di avere imagePullPolicy: IfNotPresent nei manifest delle immagini esterne
 kubectl apply -f ${MANIFEST_DIR}/kafka-cluster.yaml
 kubectl apply -f ${MANIFEST_DIR}/user-db.yaml
@@ -165,7 +172,7 @@ kubectl wait --for=condition=ready pod -l app=user-db --timeout=120s
 
 echo -e "${GREEN}>>> Infrastruttura PRONTA.${NC}"
 
-echo -e "${YELLOW}[6/7] Inizializzazione Topic Kafka...${NC}"
+echo -e "${YELLOW}[7/8] Inizializzazione Topic Kafka...${NC}"
 
 # Pulizia job precedente per permettere il re-run
 kubectl delete job kafka-init --ignore-not-found
@@ -176,7 +183,7 @@ echo "Waiting for Kafka Init Job..."
 kubectl wait --for=condition=complete job/kafka-init --timeout=120s
 echo -e "${GREEN}>>> Topic Kafka creati.${NC}"
 
-echo -e "${YELLOW}[7/7] Deployment Applicazioni...${NC}"
+echo -e "${YELLOW}[8/8] Deployment Applicazioni...${NC}"
 
 # Riavvia i deployment per forzare l'uso della nuova immagine appena caricata
 # Questo è utile se il deployment esisteva già
