@@ -71,7 +71,6 @@ for service in "${services[@]}"; do
     kind load docker-image $IMAGE_NAME --name migration-cluster
 done
 
-kind load docker-image confluentinc/cp-kafka:7.4.0 --name migration-cluster
 echo -e "${YELLOW}[4/8] Pull Immagine Kafka...${NC}"
 
 docker pull confluentinc/cp-kafka:7.4.0
