@@ -117,6 +117,23 @@ stub = user_service_pb2_grpc.DeleteUserInterestsServiceStub(channel)
 # --- Prometheus Metrics Variables ---
 REGISTER_REQUEST_COUNT = Counter('request_add_user', 'Richieste Aggiunta Utente', ['endpoint'])
 LOGIN_REQUEST_COUNT = Counter('request_login_user', 'Richieste Login Utente', ['endpoint'])
+HTTP_REQUESTS_COUNT = Counter('http_requests_total', 'Total HTTP Requests', ['method', 'endpoint', 'http_status'])
+
+@app.after_request
+def monitor_requests(response):
+   
+    if request.path == '/metrics':
+        return response
+
+    endpoint_name = request.endpoint if request.endpoint else 'unknown'
+
+    HTTP_REQUESTS_COUNT.labels(
+        method=request.method,
+        endpoint=endpoint_name,
+        http_status=response.status_code
+    ).inc()
+
+    return response
 
 @app.route('/health')
 def health_check():

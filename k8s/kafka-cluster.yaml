@@ -37,10 +37,6 @@ spec:
         - containerPort: 9092
         - containerPort: 9093
         env:
-        - name: KAFKA_NODE_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
         - name: CLUSTER_ID
           value: 'MkU3OEVBNTcwNTJENDM2Qk'
         - name: KAFKA_PROCESS_ROLES
@@ -53,6 +49,8 @@ spec:
           value: 'CONTROLLER'
         - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
           value: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+        - name: KAFKA_HEAP_OPTS
+          value: "-Xmx512M -Xms512M"
         command:
         - sh
         - -c
@@ -71,8 +69,8 @@ spec:
             port: 9092
           initialDelaySeconds: 60  
           periodSeconds: 20        
-          timeoutSeconds: 5
-          failureThreshold: 3      
+          timeoutSeconds: 10
+          failureThreshold: 5   
         readinessProbe:
           tcpSocket:
             port: 9092
