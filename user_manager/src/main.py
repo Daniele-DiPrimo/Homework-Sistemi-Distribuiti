@@ -122,7 +122,7 @@ HTTP_REQUESTS_COUNT = Counter('http_requests_total', 'Total HTTP Requests', ['me
 @app.after_request
 def monitor_requests(response):
    
-    if request.path == '/metrics':
+    if request.path == '/metrics' or request.path == '/health_check':
         return response
 
     endpoint_name = request.endpoint if request.endpoint else 'unknown'
